@@ -1,0 +1,27 @@
+const allCards=[
+{id:"eichel-as", name:"Eichel As", type:"eichel", subtype:"as", game:1, value:11, multiplicity:2},
+{id:"eichel-zehn", name:"Eichel Zehn", type:"eichel", subtype:"zehn", game:1, value:10, multiplicity:2},
+{id:"gruen-as", name:"Grün As", type:"gruen", subtype:"as", game:1, value:11, multiplicity:2},
+{id:"gruen-zehn", name:"Grün Zehn", type:"gruen", subtype:"zehn", game:1, value:10, multiplicity:2},
+{id:"herz-as", name:"Herz As", type:"herz", subtype:"as", game:1, value:11, multiplicity:2},
+{id:"herz-zehn", name:"Herz Zehn", type:"herz", subtype:"zehn", game:1, value:10, multiplicity:2},
+{id:"schellen-as", name:"Schellen As", type:"schellen", subtype:"as", game:1, value:11, multiplicity:2},
+{id:"schellen-zehn", name:"Schellen Zehn", type:"schellen", subtype:"zehn", game:1, value:10, multiplicity:2},
+{id:"eichel-koenig", name:"Eichel König", type:"eichel", subtype:"koenig", game:1, value:4, multiplicity:2},
+{id:"eichel-ober", name:"Eichel Ober", type:"eichel", subtype:"ober", game:1, value:3, multiplicity:2},
+{id:"gruen-koenig", name:"Grün König", type:"gruen", subtype:"koenig", game:1, value:4, multiplicity:2},
+{id:"gruen-ober", name:"Grün Ober", type:"gruen", subtype:"ober", game:1, value:3, multiplicity:2},
+{id:"herz-koenig", name:"Herz König", type:"herz", subtype:"koenig", game:1, value:4, multiplicity:2},
+{id:"herz-ober", name:"Herz Ober", type:"herz", subtype:"ober", game:1, value:3, multiplicity:2},
+{id:"schellen-koenig", name:"Schellen König", type:"schellen", subtype:"koenig", game:1, value:4, multiplicity:2},
+{id:"schellen-ober", name:"Schellen Ober", type:"schellen", subtype:"ober", game:1, value:3, multiplicity:2},
+{id:"eichel-unter", name:"Eichel Unter", type:"eichel", subtype:"unter", game:1, value:2, multiplicity:2},
+{id:"eichel-neun", name:"Eichel Neun", type:"eichel", subtype:"neun", game:2, value:0, multiplicity:2},
+{id:"gruen-unter", name:"Grün Unter", type:"gruen", subtype:"unter", game:1, value:2, multiplicity:2},
+{id:"gruen-neun", name:"Grün Neun", type:"gruen", subtype:"neun", game:2, value:0, multiplicity:2},
+{id:"herz-unter", name:"Herz Unter", type:"herz", subtype:"unter", game:1, value:2, multiplicity:2},
+{id:"herz-neun", name:"Herz Neun", type:"herz", subtype:"neun", game:2, value:0, multiplicity:2},
+{id:"schellen-unter", name:"Schellen Unter", type:"schellen", subtype:"unter", game:1, value:2, multiplicity:2},
+{id:"schellen-neun", name:"Schellen Neun", type:"schellen", subtype:"neun", game:2, value:0, multiplicity:2}
+]
+module.exports = allCards;

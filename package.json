@@ -1,0 +1,28 @@
+{
+  "name": "doko-server",
+  "version": "0.0.1",
+  "description": "Doppelkopf-Server",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gr4per/hwc.git"
+  },
+  "author": "gr4per",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/gr4per/doko-server/issues"
+  },
+  "homepage": "https://github.com/gr4per/doko-server#readme",
+  "devDependencies": {},
+  "dependencies": {
+    "body-parser": "^1.19.0",
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "nodemon": "^2.0.7",
+    "ws": "^7.4.4"
+  }
+}

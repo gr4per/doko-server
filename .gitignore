@@ -1,0 +1,4 @@
+~$*.xlsx
+node_modules
+gameStates
+package-lock.json
