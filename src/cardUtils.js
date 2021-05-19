@@ -49,7 +49,7 @@ function isCardLegal(game, playerId, cardId) {
     else {
       let farbe = firstCard.type;
       console.log("Spieler " + playerId + " muss " + capitalize(farbe) + " bedienen.");
-      if(card.type != farbe) {
+      if(card.type != farbe || isTrumpf(card, round.gameType, round.gameSubType)) {
         let hasFarbe = false;
         for(let rc of player.hand) {
           if(!isTrumpf(rc, round.gameType, round.gameSubType) && rc.type == farbe) {
@@ -348,7 +348,7 @@ function getPossibleNextAnnouncement(game, playerIdx) {
   let currentCards = player.hand.length;
   if(opponentInitialAnnouncement && (possibleNextAnnouncement == "Re" || possibleNextAnnouncement == "Kontra")) {
     limit--;
-    console.log("Erstansage, gegnerische Partei hat bereits angesagt, also Kartenlimit um eins verringert.");
+    //console.log("Erstansage, gegnerische Partei hat bereits angesagt, also Kartenlimit um eins verringert.");
   }
   if(currentCards >= limit) {
     return possibleNextAnnouncement;

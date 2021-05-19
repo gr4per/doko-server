@@ -6,7 +6,7 @@ const fs = require('fs');
 const {setupUniqueCards, shuffle, isCardLegal, isTrumpf, compareTrumpf, compareFehl, isSchweinerei, prettyPrint, getPossibleNextAnnouncement, getKlaerungsstich, getPlayerParty, pflichtsoloGespielt} = require("./cardUtils.js");
 const allCards = require("./allCards");
 const {sleep, getUniqueId} = require("./genericUtil.js");
-const serverPort = process.env.PORT;
+let serverPort = process.env.PORT;
 if(!serverPort)serverPort=3000;
 const app = express();
 const bodyParser = require('body-parser');
@@ -301,7 +301,7 @@ async function playCard(playerConnection, cardId) {
     
   // now check end of 
   if(game.turnCards.length == 4) {
-    await sleep(2000);
+    await sleep(3000);
     await resolveTrick(game);
   }
 }
@@ -486,12 +486,18 @@ async function resolveRound(game) {
   let re = reAnnouncements.indexOf("Re") > -1;
   let kontra = kontraAnnouncements.indexOf("Kontra") > -1;
   let reAbsage = null;
-  if(reAnnouncements.filter(e=>{return e!= "Re"}).length > 0) {
-    reAbsage = reAnnouncements[reAnnouncements.length-1];
+  if(reAnnouncements.filter(e=>{return e!= "Re" && e!= "Schweine"}).length > 0) {
+    if(reAnnouncements.indexOf("Schwarz")>-1) reAbsage = "Schwarz";
+    else if(reAnnouncements.indexOf("Keine 30")>-1) reAbsage = "Keine 30";
+    else if(reAnnouncements.indexOf("Keine 60")>-1) reAbsage = "Keine 60";
+    else if(reAnnouncements.indexOf("Keine 90")>-1) reAbsage = "Keine 90";
   }
   let kontraAbsage = null;
-  if(kontraAnnouncements.filter(e=>{return e!= "Kontra"}).length > 0) {
-    kontraAbsage = kontraAnnouncements[kontraAnnouncements.length-1];
+  if(kontraAnnouncements.filter(e=>{return e!= "Kontra" && e!= "Schweine"}).length > 0) {
+    if(kontraAnnouncements.indexOf("Schwarz")>-1) kontraAbsage = "Schwarz";
+    else if(kontraAnnouncements.indexOf("Keine 30")>-1) kontraAbsage = "Keine 30";
+    else if(kontraAnnouncements.indexOf("Keine 60")>-1) kontraAbsage = "Keine 60";
+    else if(kontraAnnouncements.indexOf("Keine 90")>-1) kontraAbsage = "Keine 90";
   }
   console.log("Re angesagt: " + (re?"ja":"nein"));
   console.log("Kontra angesagt: " + (kontra?"ja":"nein"));
@@ -575,8 +581,8 @@ async function resolveRound(game) {
       }
     }
   }
-  let loserScore = winnerParty == "Re"?kontraScore:reScore; // Im Fall beide verloren wird kontra als loserScore berechnet
-  let winnerScore = winnerParty == "Re"?reScore:kontraScore; // Im Fall beide verloren wird kontra als loserScore berechnet
+  let loserScore = winnerParty == "Kontra"?reScore:kontraScore; // Im Fall beide verloren wird kontra als loserScore berechnet
+  let winnerScore = winnerParty == "Kontra"?kontraScore:reScore; // Im Fall beide verloren wird kontra als loserScore berechnet
   if(winnerParty)gameScore.push({desc:"gewonnen",party:winnerParty,value:1});// ein Punkt für gewonnen
   let loserParty = (winnerParty=="Kontra"?"Re":"Kontra");
   if(winnerParty == "Kontra" && ["gesund","hochzeit"].indexOf(round.gameType) > -1) {
@@ -630,31 +636,33 @@ async function resolveRound(game) {
   if(loserScore == 0) {
     gameScore.push({desc:"Schwarz gespielt",party:winnerParty,value:1});
   }
+  
+  // these will even be scored if both parties lost
   if(winnerScore >= 120 && loserAnnouncements.indexOf("Keine 90") > -1) {
-    gameScore.push({desc:"120 gegen Keine 90 erreicht",party:winnerParty,value:1});
+    gameScore.push({desc:"120 gegen Keine 90 erreicht",party:winnerParty=="Kontra"?winnerParty:"Re",value:1});
   }
   if(winnerScore >= 90 && loserAnnouncements.indexOf("Keine 60") > -1) {
-    gameScore.push({desc:"90 gegen Keine 60 erreicht",party:winnerParty,value:1});
+    gameScore.push({desc:"90 gegen Keine 60 erreicht",party:winnerParty=="Kontra"?winnerParty:"Re",value:1});
   }
   if(winnerScore >= 60 && loserAnnouncements.indexOf("Keine 30") > -1) {
-    gameScore.push({desc:"60 gegen Keine 30 erreicht",party:winnerParty,value:1});
+    gameScore.push({desc:"60 gegen Keine 30 erreicht",party:winnerParty=="Kontra"?winnerParty:"Re",value:1});
   }
   if(winnerScore >= 30 && loserAnnouncements.indexOf("Schwarz") > -1) {
-    gameScore.push({desc:"30 gegen Schwarz erreicht",party:winnerParty,value:1});
+    gameScore.push({desc:"30 gegen Schwarz erreicht",party:winnerParty=="Kontra"?winnerParty:"Re",value:1});
   }
   if(loserScore >= 120 && winnerAnnouncements.indexOf("Keine 90") > -1) {
-    gameScore.push({desc:"120 gegen Keine 90 erreicht",party:loserParty,value:1});
+    gameScore.push({desc:"120 gegen Keine 90 erreicht",party:loserParty=="Re"?loserParty:"Kontra",value:1});
   }
   if(loserScore >= 90 && winnerAnnouncements.indexOf("Keine 60") > -1) {
-    gameScore.push({desc:"90 gegen Keine 60 erreicht",party:loserParty,value:1});
+    gameScore.push({desc:"90 gegen Keine 60 erreicht",party:loserParty=="Re"?loserParty:"Kontra",value:1});
   }
   if(loserScore >= 60 && winnerAnnouncements.indexOf("Keine 30") > -1) {
-    gameScore.push({desc:"60 gegen Keine 30 erreicht",party:loserParty,value:1});
+    gameScore.push({desc:"60 gegen Keine 30 erreicht",party:loserParty=="Re"?loserParty:"Kontra",value:1});
   }
   if(loserScore >= 30 && winnerAnnouncements.indexOf("Schwarz") > -1) {
-    gameScore.push({desc:"30 gegen Schwarz erreicht",party:loserParty,value:1});
+    gameScore.push({desc:"30 gegen Schwarz erreicht",party:loserParty=="Re"?loserParty:"Kontra",value:1});
   }
-  
+
   let reExtras = [];
   let kontraExtras = [];
   for(let t of round.tricks) {

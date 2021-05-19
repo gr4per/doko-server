@@ -2,3 +2,5 @@
 node_modules
 gameStates
 package-lock.json
+.deployment
+.vscode
