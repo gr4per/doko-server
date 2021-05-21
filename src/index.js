@@ -193,6 +193,11 @@ async function announce(playerConnection, announcement) {
 async function acceptScore(playerConnection, ok) {
   console.log("Player " + playerConnection.playerId + " accepts score: " + ok);
   let game = gamesList[playerConnection.gameId];
+  if(game.rounds[game.currentRound].scoreAccepted[game.players.indexOf(playerConnection.playerId)] == true){
+    console.log("player "  +playeConnection.playerId + " already accepted score!");
+    playerConnection.sendError(err);
+    return;
+  }
   game.rounds[game.currentRound].scoreAccepted[game.players.indexOf(playerConnection.playerId)] = ok;
   await updateGameState(playerConnection.gameId);
   if(game.rounds[game.currentRound].scoreAccepted.filter(e=>{return e==true;}).length == 4) {
@@ -791,20 +796,26 @@ function reportHealth(playerConnection, gameType, gameSubType) {
       console.log("" + JSON.stringify(vorbehaltList) + " haben Vorbehalt");
       let awardedPlayerIdx = null;
       let awardedLevel = 0;
-      for(let vpidx of vorbehaltList) {
+      for(let pi = 0; pi < 4; pi++) {
+        let vpidx = round.starterIdx+pi;
+        if(vpidx > 3) vpidx-=4;
+        if(vorbehaltList.indexOf(vpidx) == -1) continue;
         let vorbehalt = round.announcements[vpidx][0];
         let vorbehaltLevel = round.announcements[vpidx][0] == "hochzeit"?1:pflichtsoloGespielt(game, vpidx)?2:3;
         console.log("player " + vpidx + " (" + game.players[vpidx] + ") hat vorbehalt " + vorbehalt + ", level = " + vorbehaltLevel);
         if(awardedPlayerIdx == null) {
           awardedPlayerIdx = vpidx;
           awardedLevel = vorbehalt == "hochzeit"?1:pflichtsoloGespielt(game, vpidx)?2:3;
-          console.log("player " + vpidx + " (" + game.players[vpidx] + " hat bisher höchsten vorbehalt");
+          console.log("player " + vpidx + " (" + game.players[vpidx] + ") hat bisher höchsten vorbehalt");
         }
         else {
           if(vorbehaltLevel > awardedLevel){
-            console.log("player " + vpidx + " (" + game.players[vpidx] + " hat höheren vorbehalt");
+            console.log("player " + vpidx + " (" + game.players[vpidx] + ") hat höheren vorbehalt");
             awardedLevel = vorbehaltLevel;
             awardedPlayerIdx = vpidx;
+          }
+          else if(vorbehaltLevel == awardedLevel){
+            console.log("player " + vpidx + " (" + game.players[vpidx] + ") hat gleichrangigen vorbehalt, sitzt aber hinter " + game.players[awardedPlayerIdx] +".");
           }
         }
       }
@@ -1171,44 +1182,61 @@ function createGame(gameId, rounds) {
   tg.rounds[0].starterIdx = 0;
   return tg;
 }
-
 let gamesList = { };
-gamesList["gr4per"] = createGame("gr4per", 16);
-let gd = null;
-try { 
-  gd = fs.readFileSync("gameStates/gameState_gr4per.json");
-}
-catch(e) {
-  console.log(e);
-}
-if(gd) {
-  gd = JSON.parse(gd);
-  gamesList["gr4per"] = gd;
-  console.log("read gr4per state from file");
-  for(let ps of Object.values(gd.playerState)) {
-    ps.online = false;
-  }
-  
-  if(gd.gameStatus == "running") {
-    let round = gd.rounds[gd.currentRound];
-    if(gd.turnCards.length == 4) {
-      console.log("loaded game in running state with 4 played turnCards, resolving trick");
-      resolveTrick(gd);
+initGames();
+
+async function initGames() {
+  let gameFileNames = [];
+  let dirents = fs.readdirSync("gameStates/",{withFileTypes:true});
+  for(let de of dirents) {
+    if(de.isFile() && de.name.startsWith("gameState_") && de.name.indexOf("_",10) == -1) {
+      gameFileNames.push(de.name);
     }
-    if(round.tricks.length == 10 && round.tricks[9].cardIds.length == 4) {
-      console.log("loaded game in running state with all tricks played, resolving round");
-      resolveRound(gd);
-    }      
   }
-  else if(gd.gameStatus == "roundResults" && gd.rounds[gd.currentRound].scoreAccepted && gd.rounds[gd.currentRound].scoreAccepted.filter(e=>{return e==true;}).length == 4) {
-    if(gd.currentRound == gd.rounds.length-1) {
-      console.log("loaded game with completed result acceptance check of last round, resolving game");
-      resolveGame(gd);
+  console.log("found games: " + JSON.stringify(gameFileNames));
+  for(let gfn of gameFileNames) {
+    await loadGame(gfn);
+  }
+  console.log("all loading done");
+}
+
+async function loadGame(gameFileName) {
+  let gd = null;
+  try { 
+    gd = fs.readFileSync("gameStates/" + gameFileName);
+  }
+  catch(e) {
+    console.log(e);
+  }
+  if(gd) {
+    gd = JSON.parse(gd);
+    gamesList[gd.gameId] = gd;
+    console.log("read " + gd.gameId + " state from file " + gameFileName);
+    for(let ps of Object.values(gd.playerState)) {
+      ps.online = false;
     }
-    else {
-      console.log("loaded game with completed result acceptance check, starting next round");
-      gd.currentRound++;
-      startRound(gd.gameId);
+    
+    if(gd.gameStatus == "running") {
+      let round = gd.rounds[gd.currentRound];
+      if(gd.turnCards.length == 4) {
+        console.log("loaded game in running state with 4 played turnCards, resolving trick");
+        resolveTrick(gd);
+      }
+      if(round.tricks.length == 10 && round.tricks[9].cardIds.length == 4) {
+        console.log("loaded game in running state with all tricks played, resolving round");
+        await resolveRound(gd);
+      }      
+    }
+    else if(gd.gameStatus == "roundResults" && gd.rounds[gd.currentRound].scoreAccepted && gd.rounds[gd.currentRound].scoreAccepted.filter(e=>{return e==true;}).length == 4) {
+      if(gd.currentRound == gd.rounds.length-1) {
+        console.log("loaded game with completed result acceptance check of last round, resolving game");
+        await resolveGame(gd);
+      }
+      else {
+        console.log("loaded game with completed result acceptance check, starting next round");
+        gd.currentRound++;
+        await startRound(gd.gameId);
+      }
     }
   }
 }

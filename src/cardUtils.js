@@ -67,7 +67,7 @@ function isCardLegal(game, playerId, cardId) {
 
 function pflichtsoloGespielt(game, vpidx) {
   for(let ridx = 0; ridx < game.currentRound; ridx++) {
-    if(["obersolo","untersolo","farbsolo_eichel","farbsolo_schellen","farbsolo_gruen","farbsolo_herz","fleischloser","koenigsolo"].indexOf(game.rounds[ridx].announcements[vpidx][0]) > -1) {
+    if(["obersolo","untersolo","koenigsolo","farbsolo_eichel","farbsolo_schellen","farbsolo_gruen","farbsolo_herz","fleischloser"].indexOf(game.rounds[ridx].announcements[vpidx][0]) > -1) {
       return true;
     }
   }
