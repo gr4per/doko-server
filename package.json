@@ -19,6 +19,7 @@
   "homepage": "https://github.com/gr4per/doko-server#readme",
   "devDependencies": {},
   "dependencies": {
+    "@azure/storage-blob": "^12.5.0",
     "body-parser": "^1.19.0",
     "cors": "^2.8.5",
     "express": "^4.17.1",

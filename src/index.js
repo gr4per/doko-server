@@ -3,6 +3,7 @@ const ws = require('ws');
 const url = require('url');
 const querystring = require('querystring');
 const fs = require('fs');
+const { BlobServiceClient } = require("@azure/storage-blob");
 const {setupUniqueCards, shuffle, isCardLegal, isTrumpf, compareTrumpf, compareFehl, isSchweinerei, prettyPrint, getPossibleNextAnnouncement, getKlaerungsstich, getPlayerParty, pflichtsoloGespielt} = require("./cardUtils.js");
 const allCards = require("./allCards");
 const {sleep, getUniqueId} = require("./genericUtil.js");
@@ -19,7 +20,17 @@ let playerCreds = process.env.creds; // object mapping playerId to {pass:...., t
 if(playerCreds) {
   playerCreds = JSON.parse(playerCreds);
 }
-
+let storageAccountUrl = process.env.saConnStr;
+let blobServiceClient = null;
+let containerClient = null;
+if(storageAccountUrl) {
+  blobServiceClient = BlobServiceClient.fromConnectionString(storageAccountUrl);
+  console.log("opened blob service client");
+  if(blobServiceClient) {
+    containerClient = blobServiceClient.getContainerClient("dokodata");
+    console.log("opened container client");
+  }
+}
 
 let uidCounter = 0;
 function getPlayerConnectionId() {
@@ -75,6 +86,10 @@ wsServer.on('connection', (ws, request) => {
         console.log("player " + playerConnection.playerId + " is leaving game, remove from players = " + messageObj.params[0]);
         playerConnection.isAlive=false;
         removePlayer(playerConnection, messageObj.params[0]);
+        break;
+      case "revert":
+        console.log("player " + playerConnection.playerId + " is asking to revert game " + playerConnection.gameId + "...");
+        revertGame(playerConnection.gameId);
         break;
       case "reportHealth":
         reportHealth(playerConnection, messageObj.params.gameType, messageObj.params.gameSubType);
@@ -216,6 +231,7 @@ async function acceptScore(playerConnection, ok) {
 
 async function resolveGame(game) {
   console.log("creating new game");
+  let prevInstance = game.instance;
   let players = game.players;
   let playerState = game.playerState;
   for(let p of Object.values(playerState)) {
@@ -223,8 +239,11 @@ async function resolveGame(game) {
   }
   game = createGame(game.gameId, 16);
   game.players = players;
+  game.startTime = new Date().getTime();
   game.playerState = playerState;
+  game.instance = prevInstance+1;
   gamesList[game.gameId] = game;
+  await saveGame(game);
   await updateGameState(game.gameId);
   startGame(game.gameId);
 }
@@ -460,6 +479,7 @@ async function resolveTrick(game) {
     console.log("reached end of round.");
     await resolveRound(game);
   }
+  await saveGame(game);
   await updateGameState(game.gameId);
 }
 
@@ -861,6 +881,43 @@ function reportHealth(playerConnection, gameType, gameSubType) {
   return;
 }
 
+async function revertGame(gameId) {
+  let game = gamesList[gameId];
+  if(!game) {
+    console.error("cannot revert game with id " + gameId + ", not found!");
+    return;
+  }
+  // scan saved games and update state to second recent one, delete the more recent ones ?
+  let gameFileNames = await listFiles("gameStates/");
+  // group files by gameId
+  gameFileNames = gameFileNames.filter(gfn=>{return gfn.startsWith(gameId+"_");}).sort();
+  console.log("found games: " + JSON.stringify(gameFileNames));
+  let prevState = null;
+  for(let i = gameFileNames.length-1; i > -1;i--) {
+    let gfn = gameFileNames[i];
+    let timeStr = gfn.substring(0,gfn.length-5); // cut .json ending
+    timeStr = timeStr.substring(gameId.length+1,timeStr.length); // cut gameId_ on left hand side
+    console.log("timeStr = " + timeStr);
+    timeStr = timeStr.substring(timeStr.indexOf("_")+1, timeStr.length); // cut instance_ on left hand side
+    console.log("timeStr = " + timeStr);
+    if(timeStr < game.timestamp) {
+      prevState = gfn;
+      console.log("found previous state file: " + gfn);
+      break;
+    }
+    else {
+      console.log(gfn + " is not before " + game.timestamp + ", looking for earlier files...");
+    }
+  }
+  if(prevState) {
+    await loadGame(prevState);
+    await updateGameState(gameId);
+  }
+  else {
+    console.log("no state preceding " + game.timestamp + " found!");
+  }
+}
+
 function removePlayer(playerConnection,removeFromPlayers=true) {
     
     playerConnections.splice(playerConnections.indexOf(playerConnection),1 );
@@ -912,11 +969,14 @@ async function updateGameState(gameId) {
   let conns = playerConnections.filter(pc=>{return pc.gameId == gameId;});
   console.log("broadcasting gameState update of game " + gameId + " to " + conns.length + " clients...");
   let game = gamesList[gameId];
+  if(!game) {
+    console.error("cannot update gameState of game " + gameId + ", not found!");
+    return;
+  }
   let gameRev = game.rev;
   game.rev = gameRev?gameRev+1:1;
-  game.timestamp = new Date();
-  fs.writeFileSync("gameStates/gameState_" + gameId + ".json", JSON.stringify(game,null,2));
-  fs.writeFileSync("gameStates/gameState_" + gameId + "_round" + game.currentRound + "_"+(game.rounds[game.currentRound].tricks?"t"+game.rounds[game.currentRound].tricks.length:"pre")+".json", JSON.stringify(game,null,2));
+  //game.timestamp = new Date();
+  //await writeFile("gameStates/gameState_" + gameId + "_round" + game.currentRound + "_"+(game.rounds[game.currentRound].tricks?"t"+game.rounds[game.currentRound].tricks.length:"pre")+".json", JSON.stringify(game,null,2));
   for(let con of conns) {
     try {
       con.socket.send(JSON.stringify(game));
@@ -942,13 +1002,15 @@ server.on('upgrade', (request, socket, head) => {
   let query = querystring.parse(requestURL.query);
   console.log("path:" + JSON.stringify(path));
   console.log("query:" + JSON.stringify(query));
+  let gameFound = false;
   if(path.startsWith("/api/games/") && path.length > 12 && path.endsWith("/join")) {
     let gameId = path.substring(11,path.indexOf('/',11));
     console.log("gameId = " + gameId);
     if(!gamesList[gameId]) {
       console.error("game " + gameId + " not found"); 
-      socket.destroy();
-      return;
+    }
+    else {
+      gameFound = true;
     }
     let playerId = query.playerId;
     console.log("playerId = " + playerId);
@@ -977,7 +1039,7 @@ server.on('upgrade', (request, socket, head) => {
       playerConnections.push(playerConnection);
 
       let result = canJoinGame(gameId, playerId);
-      if(!isNaN(result)) {
+      if(gameFound && !isNaN(result)) {
         console.log("joining player " + playerId + " at pos " + result);
         let game = gamesList[gameId];  
         game.players[result] = playerId;
@@ -993,7 +1055,9 @@ server.on('upgrade', (request, socket, head) => {
       }
       else {
         console.log("failed to join player " + playerId + ":" + result);
-        console.log("players = " + JSON.stringify(gamesList[gameId].players) + ", online status = " + JSON.stringify(Object.values(gamesList[gameId].playerState).map(ps=>{return ""+ps.playerId + ": " + (ps.online?"online":"offline")})));
+        if(gamesList[gameId]){
+          console.log("players = " + JSON.stringify(gamesList[gameId].players) + ", online status = " + JSON.stringify(Object.values(gamesList[gameId].playerState).map(ps=>{return ""+ps.playerId + ": " + (ps.online?"online":"offline")})));
+        }
         playerConnection.error=result;
       }
       wsServer.emit('connection', socket, request);
@@ -1089,13 +1153,24 @@ async function startRound(gameId) {
   if(soloPlayerIdx > -1) {
     round.forcedSoloIdx = soloPlayerIdx;
     if(game.currentRound < game.rounds.length-1) {
-      game.rounds[currentRound+1].starterIdx = round.starterIdx;
+      game.rounds[game.currentRound+1].starterIdx = round.starterIdx;
     }
     round.starterIdx = soloPlayerIdx;
   }
   // enter precheck phase
   game.gameStatus = "precheck";
+  await saveGame(game);
   await updateGameState(gameId);
+}
+
+async function saveGame(game) {
+  let startTime = new Date(game.startTime);
+  let dateStr = ""+startTime.getYear()+"-"+startTime.getMonth()+"-"+startTime.getDate()+"-"+startTime.getHours()+"-"+startTime.getMinutes();
+  if(!game.instance)game.instance = 0;
+  game.timestamp = new Date().toISOString().replace(/:/g,"-");
+  await writeFile("gameStates/" + game.gameId + "_" + game.instance + "_"+game.timestamp+".json", JSON.stringify(game,null,2));
+  console.log("game " + game.gameId + " saved...");
+  
 }
 
 function canJoinGame(gameId, playerId) {
@@ -1163,6 +1238,10 @@ PUT /api/games/<id> - create new game
 */
 
 function createGame(gameId, rounds) {
+  if(gameId.indexOf("_") > -1) {
+    console.error("cannot create game with underscore in the id: " + gameId);
+    return;
+  }
   let tg = {
     gameId:gameId,
     rev:0,
@@ -1172,7 +1251,8 @@ function createGame(gameId, rounds) {
     deck:getDeck(1),
     players:[null,null,null,null],
     playerState:{},
-    chat:[]
+    chat:[],
+    startTime:new Date().getTime()
   };
   tg.rounds = [];
   for(let i = 0; i < rounds; i++) {
@@ -1180,30 +1260,117 @@ function createGame(gameId, rounds) {
     tg.rounds.push(round);
   }
   tg.rounds[0].starterIdx = 0;
+  saveGame(tg);
   return tg;
 }
 let gamesList = { };
 initGames();
 
-async function initGames() {
-  let gameFileNames = [];
-  let dirents = fs.readdirSync("gameStates/",{withFileTypes:true});
-  for(let de of dirents) {
-    if(de.isFile() && de.name.startsWith("gameState_") && de.name.indexOf("_",10) == -1) {
-      gameFileNames.push(de.name);
+async function listFiles(path) {
+  let fileNames = [];
+  if(containerClient) {
+    let i = 1;
+    let blobs = containerClient.listBlobsFlat();
+    for await (const blob of blobs) {
+      console.log(`Blob ${i++}: ${blob.name}`);
+      fileNames.push(blob.name.substring(path.length,blob.name.length));
     }
   }
+  else {
+    let dirents = fs.readdirSync(path,{withFileTypes:true});
+    for(let de of dirents) {
+      if(de.isFile()) {
+        fileNames.push(de.name);
+      }
+    }
+  }
+  return fileNames;
+}
+
+async function initGames() {
+  let gameFileNames = await listFiles("gameStates/");
+  // group files by gameId
+  gameFileNames = gameFileNames.sort();
   console.log("found games: " + JSON.stringify(gameFileNames));
-  for(let gfn of gameFileNames) {
+  let coveredGameIds = [];
+  for(let i = gameFileNames.length-1; i> -1; i--) {
+    let gfn = gameFileNames[i];
+    console.log("gfn = " + gfn);
+    let gameId = gfn.substring(0,gfn.length-5);
+    console.log("gameId = " + gameId);
+    let suffix = "";
+    let instance = 0;
+    if(gameId.indexOf("_") > -1) {
+      suffix = gameId.substring(gameId.indexOf("_")+1, gameId.length);
+      gameId = gameId.substring(0, gameId.indexOf("_"));
+      console.log("gameId = " + gameId);
+      console.log("suffix = " + suffix);
+      if(suffix.indexOf("_")>-1) {
+        let instanceStr = suffix.substring(0,suffix.indexOf("_"));
+        console.log("instanceStr=" + instanceStr);
+        instance = parseInt(instanceStr);
+        suffix = suffix.substring(instanceStr.length+1,suffix.length);
+        console.log("suffix = " + suffix);
+      }
+      console.log("suffix = " + suffix);
+      console.log("instance = " + instance);
+    }
+    if(coveredGameIds.indexOf(gameId) > -1) {
+      console.log("game " + gameId + " already loaded, skipping " + gfn);
+      continue;
+    }
     await loadGame(gfn);
+    coveredGameIds.push(gameId);
   }
   console.log("all loading done");
+}
+
+// [Node.js only] A helper method used to read a Node.js readable stream into a Buffer
+async function streamToBuffer(readableStream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    readableStream.on("data", (data) => {
+      chunks.push(data instanceof Buffer ? data : Buffer.from(data));
+    });
+    readableStream.on("end", () => {
+      resolve(Buffer.concat(chunks));
+    });
+    readableStream.on("error", reject);
+  });
+}
+  
+async function readFile(path) {
+  let data = null;
+  if(containerClient) {
+    let blobClient = containerClient.getBlobClient(path);
+    const downloadBlockBlobResponse = await blobClient.download();
+    data = (
+      await streamToBuffer(downloadBlockBlobResponse.readableStreamBody)
+    ).toString();
+    //console.log("Downloaded blob content:", data);
+ 
+  }
+  else {
+    data = fs.readFileSync(path);
+  }
+  return data;
+}
+
+async function writeFile(path, content) {
+  if(containerClient) {
+    let blockBlobClient = containerClient.getBlockBlobClient(path);
+    let uploadBlobResponse = await blockBlobClient.upload(content, content.length);
+    console.log("Upload block blob ${blobName} successful", uploadBlobResponse.requestId);  
+  }
+  else {
+    fs.writeFileSync(path, content);
+  }
 }
 
 async function loadGame(gameFileName) {
   let gd = null;
   try { 
-    gd = fs.readFileSync("gameStates/" + gameFileName);
+    gd = await readFile("gameStates/" + gameFileName);
   }
   catch(e) {
     console.log(e);
@@ -1211,11 +1378,14 @@ async function loadGame(gameFileName) {
   if(gd) {
     gd = JSON.parse(gd);
     gamesList[gd.gameId] = gd;
-    console.log("read " + gd.gameId + " state from file " + gameFileName);
+    console.log("read " + gd.gameId + " state from file " + gameFileName + ", timestamp= " + gd.timestamp);
     for(let ps of Object.values(gd.playerState)) {
       ps.online = false;
     }
-    
+    if(!gd.instance && gd.instance != 0) {
+      console.log("injecting instance into read game...");
+      gd.instance = 0;
+    }
     if(gd.gameStatus == "running") {
       let round = gd.rounds[gd.currentRound];
       if(gd.turnCards.length == 4) {
@@ -1280,6 +1450,29 @@ app.get('/api/games/:gameId/join', headers, (req, res) => {
   let gameId = req.params.gameId;
   let playerId = req.params.playerId;
   console.log("got request from player " + playerId + " to join game " + gameId);
+});
+
+app.post('/api/games/:gameId/revert', headers, (req, res) => {
+  let gameId = req.params.gameId;
+  console.log("got request to revert game " + gameId);
+  revertGame(gameId);
+  /*
+  let game = gamesList[gameId];
+  if(!game) {
+    res.status(404).send({meta:{message:"Game not found"},content:{}});
+    return;
+  }
+  let round = game.rounds[game.currentRound];
+  console.log("game " + gameId + " is currently in round " + game.currentRound);
+  let completedTricks = round.tricks.filter(t=>{return t.winnerIdx>-1;});
+  if(completedTricks > 0) {
+    console.log("game " + gameId + " last completed trick is " + (completedTricks-1));
+    
+  }
+  else {
+    
+  }
+  */
 });
 
 app.post('/api/login', (req, res) => {
