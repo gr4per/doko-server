@@ -9,6 +9,22 @@ const allCards = require("./allCards");
 const {sleep, getUniqueId} = require("./genericUtil.js");
 let serverPort = process.env.PORT;
 if(!serverPort)serverPort=3000;
+const winston = require('winston');
+
+const {Loggly} = require('winston-loggly-bulk');
+let logglyToken = process.env.logglyToken;
+if(logglyToken) {
+  winston.add(new Loggly({
+      token: logglyToken,
+      subdomain: "gr4per",
+      tags: ["Winston-NodeJS"],
+      json: true
+  }));
+
+  console.log = winston.log;
+  console.error = winston.log;
+  console.log('info', "doko-server connected to loggly!");
+}
 const app = express();
 const bodyParser = require('body-parser');
 const cors = require('cors');
