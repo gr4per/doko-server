@@ -1,5 +1,5 @@
 echo $1
-if [ -z "$1"]
+if [ -z "$1" ]
 then echo "usage: push <commit msg>"
   exit 1
 else
