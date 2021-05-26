@@ -1,6 +1,7 @@
 on:
-  release:
-    types: [created]
+  push:
+    branches:
+      -main
 
 env:
   AZURE_WEBAPP_NAME: gr4per-doko-server   # set this to your application's name
