@@ -10,10 +10,11 @@ const allCards = require("./allCards");
 const {sleep, getUniqueId} = require("./genericUtil.js");
 let serverPort = process.env.PORT;
 if(!serverPort)serverPort=3000;
+console.log("setting up logging system...");
 const winston = require('winston');
-
 const {Loggly} = require('winston-loggly-bulk');
-let logglyToken = process.env.logglyToken;
+const logglyToken = process.env.logglyToken;
+console.log("found logglyToken = " + logglyToken);
 if(logglyToken) {
   winston.add(new Loggly({
       token: logglyToken,
@@ -22,11 +23,27 @@ if(logglyToken) {
       json: true
   }));
 
-  console.log = winston.log;
-  console.error = winston.log;
-  console.log('info', "doko-server connected to loggly!");
+  console.log("doko-server connected to loggly!");
 }
-console.log("version = " + pjson.version);
+function logInfo() {
+  if(logglyToken) {
+    let args = Array.from(arguments);
+    args.unshift("info");
+    winston.log.apply(winston, args);
+  }
+  else console.log.apply(console, arguments);
+}
+function logError() {
+  if(logglyToken) {
+    let args = Array.from(arguments);
+    args.unshift("error");
+    winston.log.apply(winston, args);
+  }
+  else console.error.apply(console, arguments);
+}
+
+logInfo("version = " + pjson.version);
+logError("test error");
 const app = express();
 const bodyParser = require('body-parser');
 const cors = require('cors');
@@ -43,10 +60,10 @@ let blobServiceClient = null;
 let containerClient = null;
 if(storageAccountUrl) {
   blobServiceClient = BlobServiceClient.fromConnectionString(storageAccountUrl);
-  console.log("opened blob service client");
+  logInfo("opened blob service client");
   if(blobServiceClient) {
     containerClient = blobServiceClient.getContainerClient("dokodata");
-    console.log("opened container client");
+    logInfo("opened container client");
   }
 }
 
@@ -65,35 +82,35 @@ function noop() {}
 
 const wsServer = new ws.Server({ noServer: true });
 wsServer.on('connection', (ws, request) => {
-  console.log("connection event on wsServer, socket : " + formatSocket(request.socket));
+  logInfo("connection event on wsServer, socket : " + formatSocket(request.socket));
   
   let playerConnection = playerConnections.find(e=>{return e.socket == ws;});
   playerConnection.sendError = (error) => {
-    console.log("sending error tp player " + playerConnection.playerId + ": " + error);
+    logInfo("sending error tp player " + playerConnection.playerId + ": " + error);
     ws.send(JSON.stringify({error:error}));
   };
   if(!playerConnection) {
-    console.error("failed to locate playerConnection on socket " + formatSocket(request.socket));
+    logError("failed to locate playerConnection on socket " + formatSocket(request.socket));
     ws.destroy();
     return;
   }
-  console.log("found playerConnection["+playerConnection.id+"], playerId " + playerConnection.playerId + ", gameId " + playerConnection.gameId);
+  logInfo("found playerConnection["+playerConnection.id+"], playerId " + playerConnection.playerId + ", gameId " + playerConnection.gameId);
   ws.send(JSON.stringify({command:"id",params:[playerConnection.id,pjson.version]}));
   if(playerConnection.error) {
-    console.log("playerConnection is in error state, sending error to client before socket termination.");
+    logInfo("playerConnection is in error state, sending error to client before socket termination.");
     ws.send(JSON.stringify({error:playerConnection.error}));
     removePlayer(playerConnection);
   }
   ws.on('error', (e) => {
-      console.log("received error on websocket of player " + playerConnection.playerId + ", connected to game " + playerConnection.gameId + ": " + e);
+      logInfo("received error on websocket of player " + playerConnection.playerId + ", connected to game " + playerConnection.gameId + ": " + e);
       playerConnection.error = e;
   });
   ws.on('pong', (e) => {
-    //console.log("received pong from playerConnection of " + playerConnection.playerId);
+    //logInfo("received pong from playerConnection of " + playerConnection.playerId);
     playerConnection.isAlive=true;
   });
   ws.on('message', message => {
-    //console.log("rcvd msg from " + playerConnection.playerId + ": " + message);
+    //logInfo("rcvd msg from " + playerConnection.playerId + ": " + message);
     let messageObj = JSON.parse(message);
     switch(messageObj.command) {
       case "clientPing":
@@ -101,12 +118,12 @@ wsServer.on('connection', (ws, request) => {
         ws.send(JSON.stringify({command:"pong"}));
         break;
       case "leave":
-        console.log("player " + playerConnection.playerId + " is leaving game, remove from players = " + messageObj.params[0]);
+        logInfo("player " + playerConnection.playerId + " is leaving game, remove from players = " + messageObj.params[0]);
         playerConnection.isAlive=false;
         removePlayer(playerConnection, messageObj.params[0]);
         break;
       case "revert":
-        console.log("player " + playerConnection.playerId + " is asking to revert game " + playerConnection.gameId + "...");
+        logInfo("player " + playerConnection.playerId + " is asking to revert game " + playerConnection.gameId + "...");
         revertGame(playerConnection.gameId);
         break;
       case "reportHealth":
@@ -128,7 +145,7 @@ wsServer.on('connection', (ws, request) => {
         announce(playerConnection, messageObj.params[0]);
         break;
       default:
-        console.log("Not implemented! Received command " + messageObj.command + " from player " + playerConnection.playerId);
+        logInfo("Not implemented! Received command " + messageObj.command + " from player " + playerConnection.playerId);
     }
   });
   playerConnection.status = "joined";
@@ -138,18 +155,18 @@ wsServer.on('connection', (ws, request) => {
 async function lastTrick(playerConnection) {
   let game = gamesList[playerConnection.gameId];
   if(game.gameStatus != "running") {
-    console.log("cannot view last trick when game is not running");
+    logInfo("cannot view last trick when game is not running");
     return;
   }
   let round = game.rounds[game.currentRound];
   let completedTricks = round.tricks.filter(t=>{return t.winnerIdx >-1;});
   if(completedTricks.length == 0) {
-    console.log("no tricks played that can be viewed");
+    logInfo("no tricks played that can be viewed");
     return;
   }
   if(game.viewLastTrickIdx != null) {
     game.viewLastTrickIdx = null;
-    console.log("" + playerConnection.playerId + " hat genug gesehen.");
+    logInfo("" + playerConnection.playerId + " hat genug gesehen.");
   }
   else {
     gameLog(playerConnection.gameId, null, "" + playerConnection.playerId + " sieht sich den letzten Stich an.");
@@ -173,46 +190,46 @@ async function announce(playerConnection, announcement) {
   }
   let game = gamesList[playerConnection.gameId];
   if(!game) {
-    console.log("Player " + playerConnection.playerId + " cannot announce on non existing game " + playerConnection.gameId);
+    logInfo("Player " + playerConnection.playerId + " cannot announce on non existing game " + playerConnection.gameId);
     playerConnection.sendError("Spiel " + playerConnection.gameId + " nicht gefunden.");
     return;
   }
-  console.log("game = " + game.gameId + ", players = " + JSON.stringify(game.players));
+  logInfo("game = " + game.gameId + ", players = " + JSON.stringify(game.players));
   let playerIdx = game.players.indexOf(playerConnection.playerId);
   if(playerIdx == -1) {
-    console.log("Player " + playerConnection.playerId + " is not found in game " + playerConnection.gameId);
+    logInfo("Player " + playerConnection.playerId + " is not found in game " + playerConnection.gameId);
     playerConnection.sendError("Spieler " + playerConnection.playerId + " nimmt an Spiel " + playerConnection.gameId + " nicht teil.");
     return;
   }
-  console.log("playerIdx = " + playerIdx);
+  logInfo("playerIdx = " + playerIdx);
   if(game.gameStatus != "running") {
-    console.log("Player " + playerConnection.playerId + " cannot announce on non running game " + playerConnection.gameId);
+    logInfo("Player " + playerConnection.playerId + " cannot announce on non running game " + playerConnection.gameId);
     playerConnection.sendError("Spiel " + playerConnection.gameId + " ist nicht in einer aktiven Runde und erlaubt daher zu diesem Zeitpunkt keine Ansagen.");
     return;
   }
-  console.log("checking possible announcement for game " + playerConnection.gameId + ", player " + playerConnection.playerId + "[" + playerIdx+ "], trying to announce " + announcement + ".");
+  logInfo("checking possible announcement for game " + playerConnection.gameId + ", player " + playerConnection.playerId + "[" + playerIdx+ "], trying to announce " + announcement + ".");
   let nextAnnouncement = getPossibleNextAnnouncement(game, playerIdx);
   if(nextAnnouncement == null) {
-    console.log("Player " + playerConnection.playerId + " cannot make any announcements in game " + playerConnection.gameId + " at this time.");
+    logInfo("Player " + playerConnection.playerId + " cannot make any announcements in game " + playerConnection.gameId + " at this time.");
     playerConnection.sendError("Es gibt momentan keine legalen Ansageoptionen für Spieler " +playerConnection.playerId + " in Spiel " + playerConnection.gameId + ".");
     return;
   }
   if(nextAnnouncement != announcement) {
-    console.log("Player " + playerConnection.playerId + " cannot announcements " + announcement + " in game " + playerConnection.gameId + ", next legal option is " + nextAnnouncement);
+    logInfo("Player " + playerConnection.playerId + " cannot announcements " + announcement + " in game " + playerConnection.gameId + ", next legal option is " + nextAnnouncement);
     playerConnection.sendError("Spieler " +playerConnection.playerId + " kann in Spiel " + playerConnection.gameId + " nicht '" + announcement + "' ansagen. Ansageoption ist " + nextAnnouncement);
     return;
   }
   gameLog(playerConnection.gameId, playerConnection.playerId, announcement);
   
-  console.log("Player " + playerConnection.playerId + " announces " + announcement);
+  logInfo("Player " + playerConnection.playerId + " announces " + announcement);
   let playerParty = getPlayerParty(game, playerIdx);
   let round = game.rounds[game.currentRound];
   if(playerParty == "Re" && round.rePlayers.indexOf(playerIdx) == -1) {
-    console.log("Player " + playerConnection.playerId + " in Re party announces " + announcement + ", adding to rePlayers");
+    logInfo("Player " + playerConnection.playerId + " in Re party announces " + announcement + ", adding to rePlayers");
     addPlayerToParty(game, "Re", playerIdx);
   }    
   if(playerParty == "Kontra" && round.kontraPlayers.indexOf(playerIdx) == -1) {
-    console.log("Player " + playerConnection.playerId + " in Kontra party announces " + announcement + ", adding to kontraPlayers");
+    logInfo("Player " + playerConnection.playerId + " in Kontra party announces " + announcement + ", adding to kontraPlayers");
     addPlayerToParty(game, "Kontra", playerIdx);
   }
   if(round.announcements[playerIdx].indexOf(playerParty) == -1 && announcement != playerParty) {
@@ -224,22 +241,22 @@ async function announce(playerConnection, announcement) {
 
 
 async function acceptScore(playerConnection, ok) {
-  console.log("Player " + playerConnection.playerId + " accepts score: " + ok);
+  logInfo("Player " + playerConnection.playerId + " accepts score: " + ok);
   let game = gamesList[playerConnection.gameId];
   if(game.rounds[game.currentRound].scoreAccepted[game.players.indexOf(playerConnection.playerId)] == true){
-    console.log("player "  +playeConnection.playerId + " already accepted score!");
+    logInfo("player "  +playeConnection.playerId + " already accepted score!");
     playerConnection.sendError(err);
     return;
   }
   game.rounds[game.currentRound].scoreAccepted[game.players.indexOf(playerConnection.playerId)] = ok;
   await updateGameState(playerConnection.gameId);
   if(game.rounds[game.currentRound].scoreAccepted.filter(e=>{return e==true;}).length == 4) {
-    console.log("All players accepted");
+    logInfo("All players accepted");
     if(game.currentRound == game.rounds.length-1) {
-      console.log("last round finished, resolving game");
+      logInfo("last round finished, resolving game");
       return await resolveGame(game);
     }
-    console.log("starting next round");
+    logInfo("starting next round");
     await sleep(1000);
     game.currentRound++;
     
@@ -248,7 +265,7 @@ async function acceptScore(playerConnection, ok) {
 }
 
 async function resolveGame(game) {
-  console.log("creating new game");
+  logInfo("creating new game");
   let prevInstance = game.instance;
   let players = game.players;
   let playerState = game.playerState;
@@ -285,7 +302,7 @@ async function addPlayerToParty(game, party, playerIdx) {
     }
     for(let t of round.tricks.filter(t=>{return t.cardIds.length == 4;})) {
       // Füchse nochmal überprüfen und ggf. einpacken...
-      console.log("validating trick " + JSON.stringify(t.cardIds));
+      logInfo("validating trick " + JSON.stringify(t.cardIds));
       validateFuechse(game, t);
     }
   }
@@ -297,10 +314,10 @@ async function playCard(playerConnection, cardId) {
     playerConnection.sendError("cannot accept card play, game not in running phase");
     return;
   }
-  console.log("" + playerConnection.playerId + " plays card " + cardId);
+  logInfo("" + playerConnection.playerId + " plays card " + cardId);
   let round = getCurrentRound(game);
   let currentPlayerIdx = game.players.indexOf(playerConnection.playerId);
-  console.log("currentPlayerIdx = " + currentPlayerIdx);
+  logInfo("currentPlayerIdx = " + currentPlayerIdx);
   if(currentPlayerIdx < 0) {
     playerConnection.sendError("playerId " + playerConnection.playerId + " not found in game " + gameId);
     return;
@@ -314,7 +331,7 @@ async function playCard(playerConnection, cardId) {
   let card = player.hand.find(c=>{return c.id == cardId;});
   // nothing prevents playing the card.
   //gameLog(playerConnection.gameId, playerConnection.playerId, "" + playerConnection.playerId + " spielt " + prettyPrint(game, card));
-  console.log("" + playerConnection.playerId + " spielt " + prettyPrint(game, card));
+  logInfo("" + playerConnection.playerId + " spielt " + prettyPrint(game, card));
   if(["gesund"].indexOf(round.gameType) > -1 && card.id == "eichel-ober") {
     if(round.rePlayers.indexOf(currentPlayerIdx) == -1) {
       gameLog(game.gameId, null, playerConnection.playerId + " gibt sich als Re zu erkennen.");
@@ -330,7 +347,7 @@ async function playCard(playerConnection, cardId) {
         }
       }
       if(eichelOberPlayedBefore) {
-        console.log("Zweiter Eichel-Ober von " + playerConnection.playerId + ", sieht nach stiller Hochzeit aus...");
+        logInfo("Zweiter Eichel-Ober von " + playerConnection.playerId + ", sieht nach stiller Hochzeit aus...");
         round.kontraPlayers = [0,1,2,3].filter(p=>{return round.rePlayers.indexOf(p) == -1;});
       }
     }
@@ -350,7 +367,7 @@ async function playCard(playerConnection, cardId) {
 
 function validateFuechse(game, trick) {
   if(trick.cardIds.length < 4) return;
-  console.log("validateFuechse, turnCards = " + JSON.stringify(game.turnCards));
+  logInfo("validateFuechse, turnCards = " + JSON.stringify(game.turnCards));
   let originalFuchsCount = trick.extras.filter(e=>{return e == "Fuchs";}).length;
   trick.extras = trick.extras.filter(e=>{return e != "Fuchs";});
   let fuechse = [];
@@ -397,31 +414,31 @@ async function resolveTrick(game) {
     
     if(trumpf) { // trumpf hoch
       if(isTrumpf(game.turnCards[i], round.gameType, round.gameSubType)){
-        console.log("Trumpf ist hoch und Spieler hat ebenfalls Trumpf gespielt");
+        logInfo("Trumpf ist hoch und Spieler hat ebenfalls Trumpf gespielt");
         let relativeValue = compareTrumpf(game.turnCards[i], highestCard,round.gameType,round.gameSubType);
         if(relativeValue < 0 || (relativeValue == 0 && highestCard.id == "herz-zehn" && ["gesund","hochzeit","farbsolo"].indexOf(round.gameType) > -1)) {
-            console.log("Spieler " + currentPlayerId + " an Position " + (i+1) + " überstach " + highestCard.id + " mit " + game.turnCards[i].id);
+            logInfo("Spieler " + currentPlayerId + " an Position " + (i+1) + " überstach " + highestCard.id + " mit " + game.turnCards[i].id);
             winnerIdx = currentPlayerIdx;
             highestCard = game.turnCards[i];
         }
         else {       
-          console.log("Spieler " + currentPlayerId + " an Position " + (i+1) + " blieb mit " + game.turnCards[i].id + " drunter.");
+          logInfo("Spieler " + currentPlayerId + " an Position " + (i+1) + " blieb mit " + game.turnCards[i].id + " drunter.");
         }
       }
       else {
-        console.log("Trumpf ist hoch und Spieler wirft Fehl ab");
+        logInfo("Trumpf ist hoch und Spieler wirft Fehl ab");
       }
     }
     else { // bisher ist fehl hoch
       if(isTrumpf(game.turnCards[i], round.gameType, round.gameSubType)) {
-        console.log("Spieler " + currentPlayerId + " an Position " + (i+1) + " hat mit " + game.turnCards[i].id + " den Fehlstich abgestochen.");
+        logInfo("Spieler " + currentPlayerId + " an Position " + (i+1) + " hat mit " + game.turnCards[i].id + " den Fehlstich abgestochen.");
         trumpf = true;
         highestCard = game.turnCards[i];
         winnerIdx = currentPlayerIdx;
       }
       else if(highestCard.type == game.turnCards[i].type) { // fehl der geforderten farbe
         if(compareFehl(game.turnCards[i], highestCard) < 0) {
-          console.log("Spieler " + currentPlayerId + " an Position " + (i+1) + " übernahm den Fehlstich mit " + game.turnCards[i].id + ", bisher höchste Karte war " + highestCard.id);
+          logInfo("Spieler " + currentPlayerId + " an Position " + (i+1) + " übernahm den Fehlstich mit " + game.turnCards[i].id + ", bisher höchste Karte war " + highestCard.id);
           winnerIdx = currentPlayerIdx;
           highestCard = game.turnCards[i];
         }          
@@ -432,7 +449,7 @@ async function resolveTrick(game) {
   gameLog(game.gameId, null, "Der Stich geht an " + winnerId + ".");
   trick.winnerIdx = winnerIdx;
   if(round.gameType == "hochzeit" && round.rePlayers.length == "1" && winnerIdx != round.rePlayers[0]) {
-    console.log("Erster fremder! Hochzeit ist geklärt: " + game.players[round.rePlayers[0]] + " heiratet " + game.players[winnerIdx] + ".");
+    logInfo("Erster fremder! Hochzeit ist geklärt: " + game.players[round.rePlayers[0]] + " heiratet " + game.players[winnerIdx] + ".");
     round.rePlayers.push(winnerIdx);
     round.kontraPlayers = [0,1,2,3].filter(s => {return round.rePlayers.indexOf(s) == -1;});
   }
@@ -440,10 +457,10 @@ async function resolveTrick(game) {
   // extrapunkte ?
   if(["gesund","hochzeit"].indexOf(round.gameType) > -1) {
     let augen = game.turnCards.reduce((ac,cv)=>{return ac+cv.value;},0);
-    console.log("Der Stich hat " + augen + " Augen.");
+    logInfo("Der Stich hat " + augen + " Augen.");
     if(augen >= 40) {
       trick.extras.push("Doppelkopf");
-      console.log("Extrapunkt! Der Stich war voll.");
+      logInfo("Extrapunkt! Der Stich war voll.");
       gameLog(game.gameId, null, winnerId + " hat einen Vollen geholt.");
     }
     if(round.tricks.length == 10 && highestCard.id == "eichel-unter") {
@@ -451,9 +468,9 @@ async function resolveTrick(game) {
       gameLog(game.gameId, null, winnerId + " holt den letzten Stich mit einem Karlchen.");
     }
     let karlchenCount = game.turnCards.filter(c=>{return c.type=="eichel" && c.subtype == "unter";}).length;
-    console.log("karlchenCount = " + karlchenCount);
-    console.log("trumpf = " + trumpf);
-    console.log("tricks.length = " + round.tricks.length);
+    logInfo("karlchenCount = " + karlchenCount);
+    logInfo("trumpf = " + trumpf);
+    logInfo("tricks.length = " + round.tricks.length);
     if(trumpf && round.tricks.length == 10 && karlchenCount > 0) {
       let karlchens = [];
       for(let i = 0; i < game.turnCards.length;i++) {
@@ -464,16 +481,16 @@ async function resolveTrick(game) {
           karlchens.push({pos:i, ownerIdx:ownerIdx});
         }
       }
-      console.log("Karlchens = " + JSON.stringify(karlchens));
+      logInfo("Karlchens = " + JSON.stringify(karlchens));
       if(highestCard.id == "eichel-unter") {
-        console.log("Trick was made by Karlchen, removing one from potentially caught ones.");
+        logInfo("Trick was made by Karlchen, removing one from potentially caught ones.");
         karlchens.splice(0,1);
       }
       let winnerParty = game.rounds[game.currentRound].rePlayers.indexOf(winnerIdx) > -1?"Re":game.rounds[game.currentRound].kontraPlayers.indexOf(winnerIdx) > -1?"Kontra":"Unbekannt";
-      console.log("winnerParty = " + winnerParty);
+      logInfo("winnerParty = " + winnerParty);
       for(let k of karlchens) {
         let karlchenParty = game.rounds[game.currentRound].rePlayers.indexOf(k.ownerIdx) > -1?"Re":game.rounds[game.currentRound].kontraPlayers.indexOf(k.ownerIdx) > -1?"Kontra":"Unbekannt";
-        console.log("karlchenParty = " + karlchenParty);
+        logInfo("karlchenParty = " + karlchenParty);
         if(winnerParty == "Unbekannt" || winnerParty != karlchenParty) {
           trick.extras.push("Karlchen gefangen");
           gameLog(game.gameId, null, winnerId + " hat das Karlchen von " + game.players[k.ownerIdx] + " gefangen.");
@@ -494,7 +511,7 @@ async function resolveTrick(game) {
     round.tricks.push({starterIdx:winnerIdx,cardIds:[],winnerIdx:-1,extras:[]});
   }
   else {
-    console.log("reached end of round.");
+    logInfo("reached end of round.");
     await resolveRound(game);
   }
   await saveGame(game);
@@ -505,11 +522,11 @@ async function resolveRound(game) {
   gameLog(game.gameId, null, "Die Runde ist vorbei.");
   let round = getCurrentRound(game);
   let reScore = round.rePlayers.reduce((ac,p)=>{return ac + game.playerState[game.players[p]].discardPile.reduce((iac,c)=>{return iac+c.value;},0);},0);
-  console.log("reScore = " + reScore);
+  logInfo("reScore = " + reScore);
   let kontraScore = round.kontraPlayers.reduce((ac,p)=>{return ac+game.playerState[game.players[p]].discardPile.reduce((iac,c)=>{return iac+c.value;},0);},0);
-  console.log("kontraScore = " + kontraScore);
+  logInfo("kontraScore = " + kontraScore);
   if(reScore+kontraScore != 240) {
-    console.error("Gesamtaugenzahl " + (reScore+kontraScore) + " != 240");
+    logError("Gesamtaugenzahl " + (reScore+kontraScore) + " != 240");
     process.exit(1);
   }
   let reAnnouncements = [];
@@ -524,8 +541,8 @@ async function resolveRound(game) {
   );
   let kontraAnnouncements = [];
   round.announcements.filter( (e,idx)=>{return round.kontraPlayers.indexOf(idx) > -1;}).map((ra,idx)=>{ra.map((rai,idxi)=>{if(idxi>0)kontraAnnouncements.push(rai);})});
-  console.log("Re hat angesagt: " + JSON.stringify(reAnnouncements));
-  console.log("Kontra hat angesagt: " + JSON.stringify(kontraAnnouncements));
+  logInfo("Re hat angesagt: " + JSON.stringify(reAnnouncements));
+  logInfo("Kontra hat angesagt: " + JSON.stringify(kontraAnnouncements));
   let re = reAnnouncements.indexOf("Re") > -1;
   let kontra = kontraAnnouncements.indexOf("Kontra") > -1;
   let reAbsage = null;
@@ -542,10 +559,10 @@ async function resolveRound(game) {
     else if(kontraAnnouncements.indexOf("Keine 60")>-1) kontraAbsage = "Keine 60";
     else if(kontraAnnouncements.indexOf("Keine 90")>-1) kontraAbsage = "Keine 90";
   }
-  console.log("Re angesagt: " + (re?"ja":"nein"));
-  console.log("Kontra angesagt: " + (kontra?"ja":"nein"));
-  console.log("Re absage " + (reAbsage?reAbsage:"nein"));
-  console.log("Kontra absage " + (kontraAbsage?kontraAbsage:"nein"));
+  logInfo("Re angesagt: " + (re?"ja":"nein"));
+  logInfo("Kontra angesagt: " + (kontra?"ja":"nein"));
+  logInfo("Re absage " + (reAbsage?reAbsage:"nein"));
+  logInfo("Kontra absage " + (kontraAbsage?kontraAbsage:"nein"));
   
   let winnerParty = null;
   let gameScore = [];
@@ -567,7 +584,7 @@ async function resolveRound(game) {
       reLost=true;
     }
     if(reLost) {
-      console.log("Re hat Absage " + reAbsage + " nicht erfüllt, Kontra hat " + kontraScore + " Augen.");
+      logInfo("Re hat Absage " + reAbsage + " nicht erfüllt, Kontra hat " + kontraScore + " Augen.");
     }
   }
   if(kontraAbsage) {
@@ -584,7 +601,7 @@ async function resolveRound(game) {
       kontraLost=true;
     }
     if(kontraLost) {
-      console.log("Kontra hat Absage " + kontraAbsage + " nicht erfüllt, Re hat " + reScore + " Augen.");
+      logInfo("Kontra hat Absage " + kontraAbsage + " nicht erfüllt, Re hat " + reScore + " Augen.");
     }
   }
   if(reLost && !kontraLost) {
@@ -604,12 +621,12 @@ async function resolveRound(game) {
     if(reScore > 120) {
       winnerParty = "Re";
       winners = round.rePlayers;
-      console.log("Re gewinnt mit " + reScore + " Augen.");
+      logInfo("Re gewinnt mit " + reScore + " Augen.");
     }
     else if(kontraScore > 120) {
       winnerParty = "Kontra";
       winners = round.kontraPlayers;
-      console.log("Kontra gewinnt mit " + kontraScore + " Augen.");
+      logInfo("Kontra gewinnt mit " + kontraScore + " Augen.");
     }
     else { // gespaltener Arsch
       if(!re && kontra) {
@@ -620,7 +637,7 @@ async function resolveRound(game) {
       else {
         winnerParty = "Kontra";
         winners = round.kontraPlayers;
-        console.log("Kontra gewinnt mit " + kontraScore + " Augen.");
+        logInfo("Kontra gewinnt mit " + kontraScore + " Augen.");
       }
     }
   }
@@ -731,11 +748,11 @@ async function resolveRound(game) {
   gameLog(game.gameId, null, winnerDesc);
   if(winners.length == 0) {
     winners = round.rePlayers;
-    console.log("Keine Gewinner, wähle Re als 'Gewinner' Spieler zwecks Punktezuweisung");
+    logInfo("Keine Gewinner, wähle Re als 'Gewinner' Spieler zwecks Punktezuweisung");
   }
   let winnerScoreFactor = (winners.length == 1)?3:1;
   let loserScoreFactor = (winners.length == 3)?3:1;
-  console.log("winnerScoreFactor=" + winnerScoreFactor + ", loserScoreFactor =" + loserScoreFactor);
+  logInfo("winnerScoreFactor=" + winnerScoreFactor + ", loserScoreFactor =" + loserScoreFactor);
   let totalGameScore = gameScore.reduce((ac,v) => {return ac+(v.party==winnerParty?v.value:-v.value);},0);
   round.score[4] = totalGameScore;
   round.score[0] = (winners.indexOf(0) > -1)? winnerScoreFactor*totalGameScore : -loserScoreFactor*totalGameScore;
@@ -752,7 +769,7 @@ async function resolveRound(game) {
 function gameLog(gameId, playerId, msg) {
   let game = gamesList[gameId];
   game.chat.unshift({playerId:playerId,time:new Date(),message:msg});
-  console.log("gameLog" + (playerId?"("+playerId+")":"") + ": " + msg);
+  logInfo("gameLog" + (playerId?"("+playerId+")":"") + ": " + msg);
 }
 
 // returns playerIdx
@@ -774,24 +791,24 @@ function reportHealth(playerConnection, gameType, gameSubType) {
     playerConnection.sendError("cannot accept health report, game not in precheck phase");
     return;
   }
-  console.log("" + playerConnection.playerId + " reports health " + gameType + "/" + gameSubType);
+  logInfo("" + playerConnection.playerId + " reports health " + gameType + "/" + gameSubType);
   let round = getCurrentRound(game);
   let currentPlayerIdx = game.players.indexOf(playerConnection.playerId);
-  console.log("currentPlayerIdx = " + currentPlayerIdx);
+  logInfo("currentPlayerIdx = " + currentPlayerIdx);
   if(currentPlayerIdx < 0) {
     playerConnection.sendError("playerId " + playerConnection.playerId + " not found in game " + gameId);
     return;
   }
   let readyPlayerCount = 0;
   let pidx = round.starterIdx;
-  console.log("Startspieler der runde ist " + game.players[pidx]);
+  logInfo("Startspieler der runde ist " + game.players[pidx]);
   while(readyPlayerCount < 4 && (round.announcements[pidx].length > 0)) {
-    console.log("precheck, " + pidx + " hat schon angesagt.");
+    logInfo("precheck, " + pidx + " hat schon angesagt.");
     readyPlayerCount++;
     pidx++;
     if(pidx>3)pidx=0;
   }
-  console.log("next player to report health is " + game.players[pidx]);
+  logInfo("next player to report health is " + game.players[pidx]);
   if(pidx != currentPlayerIdx) {
     playerConnection.sendError("Spieler " + playerConnection.playerId + " kann nichts ansagen, da " + game.players[pidx] + " an der Reihe ist.");
     return;
@@ -802,7 +819,7 @@ function reportHealth(playerConnection, gameType, gameSubType) {
   if(pidx>3)pidx-=4;
   
   if(round.forcedSoloIdx > -1) {
-    console.log("Vorführung von " + game.players[round.starterIdx] + ", Spiel ist " + announcement);
+    logInfo("Vorführung von " + game.players[round.starterIdx] + ", Spiel ist " + announcement);
     for(let idx = 0 ; idx < 4; idx++) {
       if(idx != round.starterIdx) {
         round.announcements[idx].push("gesund");
@@ -810,7 +827,7 @@ function reportHealth(playerConnection, gameType, gameSubType) {
     }
   }
   if(readyPlayerCount == 3 || round.forcedSoloIdx > -1) {
-    console.log("all players have announced, determining game");
+    logInfo("all players have announced, determining game");
     let originalStarterIdx = round.starterIdx;
     if(game.currentRound < game.rounds.length-1) {
       game.rounds[game.currentRound+1].starterIdx = originalStarterIdx+1; // next round next player
@@ -819,7 +836,7 @@ function reportHealth(playerConnection, gameType, gameSubType) {
     let vorbehaltList = round.announcements.map((pa,idx) => {return pa.filter(e=>{return e != "gesund";}).length>0?idx:null;}).filter(e=>{return e != null;});
     let schweineIdx = anyPlayerHasSchweine(game);
     if(vorbehaltList.length == 0) {
-      console.log("alle gesund");
+      logInfo("alle gesund");
       round.rePlayers = [];
       round.kontraPlayers = [];
       round.gameType = "gesund";
@@ -831,7 +848,7 @@ function reportHealth(playerConnection, gameType, gameSubType) {
       }
     }
     else { // jemand spielt solo
-      console.log("" + JSON.stringify(vorbehaltList) + " haben Vorbehalt");
+      logInfo("" + JSON.stringify(vorbehaltList) + " haben Vorbehalt");
       let awardedPlayerIdx = null;
       let awardedLevel = 0;
       for(let pi = 0; pi < 4; pi++) {
@@ -840,24 +857,24 @@ function reportHealth(playerConnection, gameType, gameSubType) {
         if(vorbehaltList.indexOf(vpidx) == -1) continue;
         let vorbehalt = round.announcements[vpidx][0];
         let vorbehaltLevel = round.announcements[vpidx][0] == "hochzeit"?1:pflichtsoloGespielt(game, vpidx)?2:3;
-        console.log("player " + vpidx + " (" + game.players[vpidx] + ") hat vorbehalt " + vorbehalt + ", level = " + vorbehaltLevel);
+        logInfo("player " + vpidx + " (" + game.players[vpidx] + ") hat vorbehalt " + vorbehalt + ", level = " + vorbehaltLevel);
         if(awardedPlayerIdx == null) {
           awardedPlayerIdx = vpidx;
           awardedLevel = vorbehalt == "hochzeit"?1:pflichtsoloGespielt(game, vpidx)?2:3;
-          console.log("player " + vpidx + " (" + game.players[vpidx] + ") hat bisher höchsten vorbehalt");
+          logInfo("player " + vpidx + " (" + game.players[vpidx] + ") hat bisher höchsten vorbehalt");
         }
         else {
           if(vorbehaltLevel > awardedLevel){
-            console.log("player " + vpidx + " (" + game.players[vpidx] + ") hat höheren vorbehalt");
+            logInfo("player " + vpidx + " (" + game.players[vpidx] + ") hat höheren vorbehalt");
             awardedLevel = vorbehaltLevel;
             awardedPlayerIdx = vpidx;
           }
           else if(vorbehaltLevel == awardedLevel){
-            console.log("player " + vpidx + " (" + game.players[vpidx] + ") hat gleichrangigen vorbehalt, sitzt aber hinter " + game.players[awardedPlayerIdx] +".");
+            logInfo("player " + vpidx + " (" + game.players[vpidx] + ") hat gleichrangigen vorbehalt, sitzt aber hinter " + game.players[awardedPlayerIdx] +".");
           }
         }
       }
-      console.log("" + game.players[awardedPlayerIdx] + " spielt " + round.announcements[awardedPlayerIdx][0]);
+      logInfo("" + game.players[awardedPlayerIdx] + " spielt " + round.announcements[awardedPlayerIdx][0]);
       round.rePlayers = [awardedPlayerIdx];
       round.kontraPlayers = [];
       if("hochzeit" != round.announcements[awardedPlayerIdx][0]) {
@@ -880,20 +897,20 @@ function reportHealth(playerConnection, gameType, gameSubType) {
       }
       if(awardedLevel>1) {
         round.starterIdx = awardedPlayerIdx;
-        console.log(game.players[awardedPlayerIdx] + " kommt raus, weil er Solo spielt.");
+        logInfo(game.players[awardedPlayerIdx] + " kommt raus, weil er Solo spielt.");
         if(game.currentRound < game.rounds.length-1) {
           game.rounds[game.currentRound+1].starterIdx = originalStarterIdx;
-          console.log("" + game.players[originalStarterIdx] + " kommt dann hoffentlich regulär im nächsten Spiel raus...");
+          logInfo("" + game.players[originalStarterIdx] + " kommt dann hoffentlich regulär im nächsten Spiel raus...");
         }
       }
     }
     if(!round.tricks)round.tricks =[];
     round.tricks.push({starterIdx:round.starterIdx,cardIds:[],winnerIdx:-1,extras:[]});
-    console.log("Starte Spiel...");
+    logInfo("Starte Spiel...");
     game.gameStatus ="running";
   }
   else {
-    console.log("next player to report health is " + game.players[pidx]);
+    logInfo("next player to report health is " + game.players[pidx]);
   }
   updateGameState(playerConnection.gameId);
   return;
@@ -902,29 +919,29 @@ function reportHealth(playerConnection, gameType, gameSubType) {
 async function revertGame(gameId) {
   let game = gamesList[gameId];
   if(!game) {
-    console.error("cannot revert game with id " + gameId + ", not found!");
+    logError("cannot revert game with id " + gameId + ", not found!");
     return;
   }
   // scan saved games and update state to second recent one, delete the more recent ones ?
   let gameFileNames = await listFiles("gameStates/");
   // group files by gameId
   gameFileNames = gameFileNames.filter(gfn=>{return gfn.startsWith(gameId+"_");}).sort();
-  console.log("found games: " + JSON.stringify(gameFileNames));
+  logInfo("found games: " + JSON.stringify(gameFileNames));
   let prevState = null;
   for(let i = gameFileNames.length-1; i > -1;i--) {
     let gfn = gameFileNames[i];
     let timeStr = gfn.substring(0,gfn.length-5); // cut .json ending
     timeStr = timeStr.substring(gameId.length+1,timeStr.length); // cut gameId_ on left hand side
-    console.log("timeStr = " + timeStr);
+    logInfo("timeStr = " + timeStr);
     timeStr = timeStr.substring(timeStr.indexOf("_")+1, timeStr.length); // cut instance_ on left hand side
-    console.log("timeStr = " + timeStr);
+    logInfo("timeStr = " + timeStr);
     if(timeStr < game.timestamp) {
       prevState = gfn;
-      console.log("found previous state file: " + gfn);
+      logInfo("found previous state file: " + gfn);
       break;
     }
     else {
-      console.log(gfn + " is not before " + game.timestamp + ", looking for earlier files...");
+      logInfo(gfn + " is not before " + game.timestamp + ", looking for earlier files...");
     }
   }
   if(prevState) {
@@ -932,7 +949,7 @@ async function revertGame(gameId) {
     await updateGameState(gameId);
   }
   else {
-    console.log("no state preceding " + game.timestamp + " found!");
+    logInfo("no state preceding " + game.timestamp + " found!");
   }
 }
 
@@ -943,7 +960,7 @@ function removePlayer(playerConnection,removeFromPlayers=true) {
     if(game) {
       if(removeFromPlayers) {
         game.players[game.players.indexOf(playerConnection.playerId)]=null;
-        console.log("removed player " + playerConnection.playerId + " from game " + playerConnection.gameId);
+        logInfo("removed player " + playerConnection.playerId + " from game " + playerConnection.gameId);
       }
       else {
         let ps = game.playerState[playerConnection.playerId];
@@ -960,12 +977,12 @@ function removePlayer(playerConnection,removeFromPlayers=true) {
 const interval = setInterval(function ping() {
   for(let pc of playerConnections) {
     if(pc.status == "joining" && (new Date().getTime() - pc.timestamp.getTime()) > 5000) {
-       console.log("" + new Date() + ": found stale playeConnection[" +pc.id+"] of " + pc.playerId + " to game " + pc.gameId + ", last updated " + pc.timestamp);
+       logInfo("" + new Date() + ": found stale playeConnection[" +pc.id+"] of " + pc.playerId + " to game " + pc.gameId + ", last updated " + pc.timestamp);
        pc.socket.terminate();
     }
     else {
       if (!pc.isAlive){
-        console.log("playerConnection[" + pc.id + "] of " + pc.playerId + " to game " + pc.gameId + " is not alive, terminating.");
+        logInfo("playerConnection[" + pc.id + "] of " + pc.playerId + " to game " + pc.gameId + " is not alive, terminating.");
         pc.socket.terminate();
         playerConnections.splice(playerConnections.indexOf(pc),1);
         let game = gamesList[pc.gameId];
@@ -976,7 +993,7 @@ const interval = setInterval(function ping() {
       }
       else {
         pc.isAlive = false;
-        //console.log("pinging socket of " + pc.playerId + " to game " + pc.gameId);
+        //logInfo("pinging socket of " + pc.playerId + " to game " + pc.gameId);
         pc.socket.ping(noop);
       }
     }
@@ -985,10 +1002,10 @@ const interval = setInterval(function ping() {
 
 async function updateGameState(gameId) {
   let conns = playerConnections.filter(pc=>{return pc.gameId == gameId;});
-  console.log("broadcasting gameState update of game " + gameId + " to " + conns.length + " clients...");
+  logInfo("broadcasting gameState update of game " + gameId + " to " + conns.length + " clients...");
   let game = gamesList[gameId];
   if(!game) {
-    console.error("cannot update gameState of game " + gameId + ", not found!");
+    logError("cannot update gameState of game " + gameId + ", not found!");
     return;
   }
   let gameRev = game.rev;
@@ -1000,7 +1017,7 @@ async function updateGameState(gameId) {
       con.socket.send(JSON.stringify(game));
     }
     catch(e) {
-      console.log("failed to send data to " + con.playerId + ": " + e);
+      logInfo("failed to send data to " + con.playerId + ": " + e);
     }
   }
 }
@@ -1010,34 +1027,34 @@ async function updateGameState(gameId) {
 // https://www.npmjs.com/package/ws#multiple-servers-sharing-a-single-https-server
 const server = app.listen(serverPort);
 server.on('upgrade', (request, socket, head) => {
-  console.log("websocket request is being upgraded");
-  //console.log("method:" + JSON.stringify(request.method));
-  //console.log("headers:" + JSON.stringify(request.headers));
-  //console.log("url:" + JSON.stringify(request.url));
+  logInfo("websocket request is being upgraded");
+  //logInfo("method:" + JSON.stringify(request.method));
+  //logInfo("headers:" + JSON.stringify(request.headers));
+  //logInfo("url:" + JSON.stringify(request.url));
   let requestURL = url.parse(request.url);
-  //console.log("requestURL:" + JSON.stringify(requestURL));
+  //logInfo("requestURL:" + JSON.stringify(requestURL));
   let path = requestURL.pathname;
   let query = querystring.parse(requestURL.query);
-  console.log("path:" + JSON.stringify(path));
-  console.log("query:" + JSON.stringify(query));
+  logInfo("path:" + JSON.stringify(path));
+  logInfo("query:" + JSON.stringify(query));
   let gameFound = false;
   if(path.startsWith("/api/games/") && path.length > 12 && path.endsWith("/join")) {
     let gameId = path.substring(11,path.indexOf('/',11));
-    console.log("gameId = " + gameId);
+    logInfo("gameId = " + gameId);
     if(!gamesList[gameId]) {
-      console.error("game " + gameId + " not found"); 
+      logError("game " + gameId + " not found"); 
     }
     else {
       gameFound = true;
     }
     let playerId = query.playerId;
-    console.log("playerId = " + playerId);
-    console.log("setting handle upgrade to deal with ws request");
+    logInfo("playerId = " + playerId);
+    logInfo("setting handle upgrade to deal with ws request");
     wsServer.handleUpgrade(request, socket, head, socket => {
-      console.log("upgrade negotiated, socket = " + JSON.stringify(request.socket.remoteAddress));
+      logInfo("upgrade negotiated, socket = " + JSON.stringify(request.socket.remoteAddress));
       let pcc = playerConnections.filter(p=>{return p.gameId == gameId;});
       if(pcc.length == 4) {
-        console.error("have " + pcc.length + " connections on game " + gameId + ": " + JSON.stringify(
+        logError("have " + pcc.length + " connections on game " + gameId + ": " + JSON.stringify(
           pcc.map(
             (e)=>{return {id:e.id, playerId:e.playerId, gameId:e.gameId, status:e.status, isAlive:e.isAlive, statusTime:e.statusTime};}
           )
@@ -1046,24 +1063,24 @@ server.on('upgrade', (request, socket, head) => {
       // does this player have a connection already?
       let existingPc = playerConnections.find(p=>{return p.playerId == playerId;});
       if(existingPc) {
-        console.log("newly connecting player has existing player connection " + [existingPc].map((e)=>{return {id:e.id, playerId:e.playerId, gameId:e.gameId, status:e.status, isAlive:e.isAlive, statusTime:e.statusTime};}));
+        logInfo("newly connecting player has existing player connection " + [existingPc].map((e)=>{return {id:e.id, playerId:e.playerId, gameId:e.gameId, status:e.status, isAlive:e.isAlive, statusTime:e.statusTime};}));
         if(existingPc.isAlive) {
           // verify connection
-          console.log("existing connection isAlive!");
+          logInfo("existing connection isAlive!");
         }
       }
       let playerConnection = {playerId:playerId, id:getPlayerConnectionId(), socket:socket,status:"joining",statusTime:new Date(), isAlive:true, gameId:gameId};
-      console.log("created new playerConnection[" + playerConnection.id + "] for player " + playerId + " in game " + gameId);
+      logInfo("created new playerConnection[" + playerConnection.id + "] for player " + playerId + " in game " + gameId);
       playerConnections.push(playerConnection);
 
       let result = canJoinGame(gameId, playerId);
       if(gameFound && !isNaN(result)) {
-        console.log("joining player " + playerId + " at pos " + result);
+        logInfo("joining player " + playerId + " at pos " + result);
         let game = gamesList[gameId];  
         game.players[result] = playerId;
         let playerState = game.playerState[playerId];
         if(!playerState) {
-          console.log("initializing player state of " + playerId);
+          logInfo("initializing player state of " + playerId);
           game.playerState[playerId] = {online:false,hand:[],discardPile:[]};
         }
         game.playerState[playerId].online = true;
@@ -1072,9 +1089,9 @@ server.on('upgrade', (request, socket, head) => {
         }
       }
       else {
-        console.log("failed to join player " + playerId + ":" + result);
+        logInfo("failed to join player " + playerId + ":" + result);
         if(gamesList[gameId]){
-          console.log("players = " + JSON.stringify(gamesList[gameId].players) + ", online status = " + JSON.stringify(Object.values(gamesList[gameId].playerState).map(ps=>{return ""+ps.playerId + ": " + (ps.online?"online":"offline")})));
+          logInfo("players = " + JSON.stringify(gamesList[gameId].players) + ", online status = " + JSON.stringify(Object.values(gamesList[gameId].playerState).map(ps=>{return ""+ps.playerId + ": " + (ps.online?"online":"offline")})));
         }
         playerConnection.error=result;
       }
@@ -1083,19 +1100,19 @@ server.on('upgrade', (request, socket, head) => {
     return;
 
   }
-  console.log("mismatching request url " + request.url);
+  logInfo("mismatching request url " + request.url);
   socket.destroy();
 });
 
 
 function getDeck(level) {
   let deck = setupUniqueCards(allCards.filter(c=>{return c.game <= level;}));
-  console.log("new deck = " + JSON.stringify(deck.map(c=>{return c.name}),null,2));
+  logInfo("new deck = " + JSON.stringify(deck.map(c=>{return c.name}),null,2));
   return deck;
 }
 
 function startGame(gameId) {
-  console.log("starting game " + gameId);
+  logInfo("starting game " + gameId);
   let game = gamesList[gameId];
   startRound(gameId);
 }
@@ -1109,7 +1126,7 @@ function log(gameId, message, gameLog=true){
   if(gameLog && game.log && game.log[0]) {
     if(gameLog)game.log[0].entries.unshift(logEntry);
   }
-  console.log(timestamp+"-" + gameId+": " +message);
+  logInfo(timestamp+"-" + gameId+": " +message);
 }
 
 async function startRound(gameId) {
@@ -1127,7 +1144,7 @@ async function startRound(gameId) {
   await updateGameState(gameId);
 
   if(game.deck.length != 40) {
-    console.error("deck hat " + game.deck.length + " karten!");
+    logError("deck hat " + game.deck.length + " karten!");
     process.exit(1);
   }
   
@@ -1153,7 +1170,7 @@ async function startRound(gameId) {
     let noSoloYet = [];
     for(let pidx = 0; pidx < 4;pidx++) {
       if(!pflichtsoloGespielt(game, pidx)) {
-        console.log(game.players[pidx] + " hat noch kein Pflichtsolo gespielt.");
+        logInfo(game.players[pidx] + " hat noch kein Pflichtsolo gespielt.");
         noSoloYet.push(pidx);
       }
     }
@@ -1165,7 +1182,7 @@ async function startRound(gameId) {
         soloPlayerIdx++;
         if(soloPlayerIdx > 3)soloPlayerIdx = 0;
       }
-      console.log(game.players[soloPlayerIdx] + " wird vorgeführt.");
+      logInfo(game.players[soloPlayerIdx] + " wird vorgeführt.");
     }
   }
   if(soloPlayerIdx > -1) {
@@ -1187,7 +1204,7 @@ async function saveGame(game) {
   if(!game.instance)game.instance = 0;
   game.timestamp = new Date().toISOString().replace(/:/g,"-");
   await writeFile("gameStates/" + game.gameId + "_" + game.instance + "_"+game.timestamp+".json", JSON.stringify(game,null,2));
-  console.log("game " + game.gameId + " saved...");
+  logInfo("game " + game.gameId + " saved...");
   
 }
 
@@ -1201,11 +1218,11 @@ function canJoinGame(gameId, playerId) {
     // does this player have an existing player connection?
     let pc = playerConnections.find(e=>{return e.playerId == playerId && e.status != "joining";});
     if(pc) {
-      console.log("player " + playerId + " already in game " + gameId + ".");
+      logInfo("player " + playerId + " already in game " + gameId + ".");
       return pind;
     }
     else {
-      console.log("player " + playerId + " re-joins game " + gameId + " at position " + pind);
+      logInfo("player " + playerId + " re-joins game " + gameId + " at position " + pind);
       return pind;
     }
   }
@@ -1257,7 +1274,7 @@ PUT /api/games/<id> - create new game
 
 function createGame(gameId, rounds) {
   if(gameId.indexOf("_") > -1) {
-    console.error("cannot create game with underscore in the id: " + gameId);
+    logError("cannot create game with underscore in the id: " + gameId);
     return;
   }
   let tg = {
@@ -1290,7 +1307,7 @@ async function listFiles(path) {
     let i = 1;
     let blobs = containerClient.listBlobsFlat();
     for await (const blob of blobs) {
-      console.log(`Blob ${i++}: ${blob.name}`);
+      logInfo(`Blob ${i++}: ${blob.name}`);
       fileNames.push(blob.name.substring(path.length,blob.name.length));
     }
   }
@@ -1309,38 +1326,38 @@ async function initGames() {
   let gameFileNames = await listFiles("gameStates/");
   // group files by gameId
   gameFileNames = gameFileNames.sort();
-  console.log("found games: " + JSON.stringify(gameFileNames));
+  logInfo("found games: " + JSON.stringify(gameFileNames));
   let coveredGameIds = [];
   for(let i = gameFileNames.length-1; i> -1; i--) {
     let gfn = gameFileNames[i];
-    console.log("gfn = " + gfn);
+    logInfo("gfn = " + gfn);
     let gameId = gfn.substring(0,gfn.length-5);
-    console.log("gameId = " + gameId);
+    logInfo("gameId = " + gameId);
     let suffix = "";
     let instance = 0;
     if(gameId.indexOf("_") > -1) {
       suffix = gameId.substring(gameId.indexOf("_")+1, gameId.length);
       gameId = gameId.substring(0, gameId.indexOf("_"));
-      console.log("gameId = " + gameId);
-      console.log("suffix = " + suffix);
+      logInfo("gameId = " + gameId);
+      logInfo("suffix = " + suffix);
       if(suffix.indexOf("_")>-1) {
         let instanceStr = suffix.substring(0,suffix.indexOf("_"));
-        console.log("instanceStr=" + instanceStr);
+        logInfo("instanceStr=" + instanceStr);
         instance = parseInt(instanceStr);
         suffix = suffix.substring(instanceStr.length+1,suffix.length);
-        console.log("suffix = " + suffix);
+        logInfo("suffix = " + suffix);
       }
-      console.log("suffix = " + suffix);
-      console.log("instance = " + instance);
+      logInfo("suffix = " + suffix);
+      logInfo("instance = " + instance);
     }
     if(coveredGameIds.indexOf(gameId) > -1) {
-      console.log("game " + gameId + " already loaded, skipping " + gfn);
+      logInfo("game " + gameId + " already loaded, skipping " + gfn);
       continue;
     }
     await loadGame(gfn);
     coveredGameIds.push(gameId);
   }
-  console.log("all loading done");
+  logInfo("all loading done");
 }
 
 // [Node.js only] A helper method used to read a Node.js readable stream into a Buffer
@@ -1365,7 +1382,7 @@ async function readFile(path) {
     data = (
       await streamToBuffer(downloadBlockBlobResponse.readableStreamBody)
     ).toString();
-    //console.log("Downloaded blob content:", data);
+    //logInfo("Downloaded blob content:", data);
  
   }
   else {
@@ -1378,7 +1395,7 @@ async function writeFile(path, content) {
   if(containerClient) {
     let blockBlobClient = containerClient.getBlockBlobClient(path);
     let uploadBlobResponse = await blockBlobClient.upload(content, content.length);
-    console.log("Upload block blob ${blobName} successful", uploadBlobResponse.requestId);  
+    logInfo("Upload block blob ${blobName} successful", uploadBlobResponse.requestId);  
   }
   else {
     fs.writeFileSync(path, content);
@@ -1391,37 +1408,37 @@ async function loadGame(gameFileName) {
     gd = await readFile("gameStates/" + gameFileName);
   }
   catch(e) {
-    console.log(e);
+    logInfo(e);
   }
   if(gd) {
     gd = JSON.parse(gd);
     gamesList[gd.gameId] = gd;
-    console.log("read " + gd.gameId + " state from file " + gameFileName + ", timestamp= " + gd.timestamp);
+    logInfo("read " + gd.gameId + " state from file " + gameFileName + ", timestamp= " + gd.timestamp);
     for(let ps of Object.values(gd.playerState)) {
       ps.online = false;
     }
     if(!gd.instance && gd.instance != 0) {
-      console.log("injecting instance into read game...");
+      logInfo("injecting instance into read game...");
       gd.instance = 0;
     }
     if(gd.gameStatus == "running") {
       let round = gd.rounds[gd.currentRound];
       if(gd.turnCards.length == 4) {
-        console.log("loaded game in running state with 4 played turnCards, resolving trick");
+        logInfo("loaded game in running state with 4 played turnCards, resolving trick");
         resolveTrick(gd);
       }
       if(round.tricks.length == 10 && round.tricks[9].cardIds.length == 4) {
-        console.log("loaded game in running state with all tricks played, resolving round");
+        logInfo("loaded game in running state with all tricks played, resolving round");
         await resolveRound(gd);
       }      
     }
     else if(gd.gameStatus == "roundResults" && gd.rounds[gd.currentRound].scoreAccepted && gd.rounds[gd.currentRound].scoreAccepted.filter(e=>{return e==true;}).length == 4) {
       if(gd.currentRound == gd.rounds.length-1) {
-        console.log("loaded game with completed result acceptance check of last round, resolving game");
+        logInfo("loaded game with completed result acceptance check of last round, resolving game");
         await resolveGame(gd);
       }
       else {
-        console.log("loaded game with completed result acceptance check, starting next round");
+        logInfo("loaded game with completed result acceptance check, starting next round");
         gd.currentRound++;
         await startRound(gd.gameId);
       }
@@ -1430,11 +1447,11 @@ async function loadGame(gameFileName) {
 }
 
 let headers = (req, res, next) => {
-  //console.log("checking request: " + req.url);
+  //logInfo("checking request: " + req.url);
   res.header('Access-Control-Allow-Origin', '*');
   let token = req.query.token;
   if(!Object.values(playerCreds).find(c=>{return c.token == token;})) {
-    console.log("request without correct api token: " + req.url + ", apiToken: " + token);
+    logInfo("request without correct api token: " + req.url + ", apiToken: " + token);
     res.status(404).send('not found');
     return;
   }
@@ -1445,13 +1462,13 @@ app.put('/api/games/:gameId', headers, (req, res) => {
   //res.header('Access-Control-Allow-Origin', '*');
   let gameId = req.params.gameId;
   let tableDesc = req.body;
-  console.log("game desc: " + JSON.stringify(tableDesc));
+  logInfo("game desc: " + JSON.stringify(tableDesc));
   let rounds = tableDesc.rounds;
   if(!rounds)rounds = 16;
-  console.log("PUT /api/games/" + gameId);
+  logInfo("PUT /api/games/" + gameId);
   if(Object.keys(gamesList).indexOf(gameId) > -1) {
     res.status(409).send('game already exists!');
-    console.log("Cannot create game " + gameId + ": already exists!");
+    logInfo("Cannot create game " + gameId + ": already exists!");
     return;
   }
   let newGame = createGame(gameId, rounds);
@@ -1467,12 +1484,12 @@ app.get('/api/games', headers, (req, res) => {
 app.get('/api/games/:gameId/join', headers, (req, res) => {
   let gameId = req.params.gameId;
   let playerId = req.params.playerId;
-  console.log("got request from player " + playerId + " to join game " + gameId);
+  logInfo("got request from player " + playerId + " to join game " + gameId);
 });
 
 app.post('/api/games/:gameId/revert', headers, (req, res) => {
   let gameId = req.params.gameId;
-  console.log("got request to revert game " + gameId);
+  logInfo("got request to revert game " + gameId);
   revertGame(gameId);
   /*
   let game = gamesList[gameId];
@@ -1481,10 +1498,10 @@ app.post('/api/games/:gameId/revert', headers, (req, res) => {
     return;
   }
   let round = game.rounds[game.currentRound];
-  console.log("game " + gameId + " is currently in round " + game.currentRound);
+  logInfo("game " + gameId + " is currently in round " + game.currentRound);
   let completedTricks = round.tricks.filter(t=>{return t.winnerIdx>-1;});
   if(completedTricks > 0) {
-    console.log("game " + gameId + " last completed trick is " + (completedTricks-1));
+    logInfo("game " + gameId + " last completed trick is " + (completedTricks-1));
     
   }
   else {
@@ -1494,15 +1511,15 @@ app.post('/api/games/:gameId/revert', headers, (req, res) => {
 });
 
 app.post('/api/login', (req, res) => {
-  //console.log("login, header = " + JSON.stringify(req.headers));
-  //console.log("login, body = " + req.body);
-  console.log("login JSON: " + JSON.stringify(req.body));
+  //logInfo("login, header = " + JSON.stringify(req.headers));
+  //logInfo("login, body = " + req.body);
+  logInfo("login JSON: " + JSON.stringify(req.body));
   let creds = playerCreds[req.body.playerId];
-  console.log("creds = " + creds);
+  logInfo("creds = " + creds);
   if(creds && (!creds.failedAttempts || creds.failedAttempts < 5) 
     && creds.pass == req.body.pass) {
     res.send({meta:{message:"success"},content:{apiToken:playerCreds[req.body.playerId].token}});
-    console.log("successful authN by " + req.body.playerId + ", sending token.");
+    logInfo("successful authN by " + req.body.playerId + ", sending token.");
     return;
   }
   else {
@@ -1515,7 +1532,7 @@ app.post('/api/login', (req, res) => {
         playerCreds[req.body.playerId].failedAttempts+=1;
       }
     }
-    console.log("Failed login " + req.body.playerId + (playerCreds[req.body.playerId]?", attempts = " + playerCreds[req.body.playerId].failedAttempts:""));
+    logInfo("Failed login " + req.body.playerId + (playerCreds[req.body.playerId]?", attempts = " + playerCreds[req.body.playerId].failedAttempts:""));
   }
   return;
 });
