@@ -1,6 +1,6 @@
 {
   "name": "doko-server",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Doppelkopf-Server",
   "main": "src/index.js",
   "scripts": {
