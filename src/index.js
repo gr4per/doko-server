@@ -84,7 +84,7 @@ function noop() {}
 
 const wsServer = new ws.Server({ noServer: true });
 wsServer.on('connection', (ws, request) => {
-  logInfo("connection event on wsServer, socket : " + formatSocket(request.socket));
+  //logInfo("connection event on wsServer, socket : " + formatSocket(request.socket));
   
   let playerConnection = playerConnections.find(e=>{return e.socket == ws;});
   playerConnection.sendError = (error) => {
@@ -96,7 +96,7 @@ wsServer.on('connection', (ws, request) => {
     ws.destroy();
     return;
   }
-  logInfo("found playerConnection["+playerConnection.id+"], playerId " + playerConnection.playerId + ", gameId " + playerConnection.gameId);
+  //logInfo("found playerConnection["+playerConnection.id+"], playerId " + playerConnection.playerId + ", gameId " + playerConnection.gameId);
   ws.send(JSON.stringify({command:"id",params:[playerConnection.id,pjson.version]}));
   if(playerConnection.error) {
     logInfo("playerConnection is in error state, sending error to client before socket termination.");
@@ -1029,7 +1029,7 @@ async function updateGameState(gameId) {
 // https://www.npmjs.com/package/ws#multiple-servers-sharing-a-single-https-server
 const server = app.listen(serverPort);
 server.on('upgrade', (request, socket, head) => {
-  logInfo("websocket request is being upgraded");
+  //logInfo("websocket request is being upgraded");
   //logInfo("method:" + JSON.stringify(request.method));
   //logInfo("headers:" + JSON.stringify(request.headers));
   //logInfo("url:" + JSON.stringify(request.url));
@@ -1037,12 +1037,12 @@ server.on('upgrade', (request, socket, head) => {
   //logInfo("requestURL:" + JSON.stringify(requestURL));
   let path = requestURL.pathname;
   let query = querystring.parse(requestURL.query);
-  logInfo("path:" + JSON.stringify(path));
-  logInfo("query:" + JSON.stringify(query));
+  //logInfo("path:" + JSON.stringify(path));
+  //logInfo("query:" + JSON.stringify(query));
   let gameFound = false;
   if(path.startsWith("/api/games/") && path.length > 12 && path.endsWith("/join")) {
     let gameId = path.substring(11,path.indexOf('/',11));
-    logInfo("gameId = " + gameId);
+    //logInfo("gameId = " + gameId);
     if(!gamesList[gameId]) {
       logError("game " + gameId + " not found"); 
     }
@@ -1050,10 +1050,10 @@ server.on('upgrade', (request, socket, head) => {
       gameFound = true;
     }
     let playerId = query.playerId;
-    logInfo("playerId = " + playerId);
-    logInfo("setting handle upgrade to deal with ws request");
+    //logInfo("playerId = " + playerId);
+    //logInfo("setting handle upgrade to deal with ws request");
     wsServer.handleUpgrade(request, socket, head, socket => {
-      logInfo("upgrade negotiated, socket = " + JSON.stringify(request.socket.remoteAddress));
+      //logInfo("upgrade negotiated, socket = " + JSON.stringify(request.socket.remoteAddress));
       let pcc = playerConnections.filter(p=>{return p.gameId == gameId;});
       if(pcc.length == 4) {
         logError("have " + pcc.length + " connections on game " + gameId + ": " + JSON.stringify(
@@ -1309,7 +1309,7 @@ async function listFiles(path) {
     let i = 1;
     let blobs = containerClient.listBlobsFlat();
     for await (const blob of blobs) {
-      logInfo(`Blob ${i++}: ${blob.name}`);
+      //logInfo(`Blob ${i++}: ${blob.name}`);
       fileNames.push(blob.name.substring(path.length,blob.name.length));
     }
   }
