@@ -30,6 +30,7 @@ function logInfo() {
     let args = Array.from(arguments);
     args.unshift("info");
     winston.log.apply(winston, args);
+    console.log.apply(console, arguments);
   }
   else console.log.apply(console, arguments);
 }
@@ -38,6 +39,7 @@ function logError() {
     let args = Array.from(arguments);
     args.unshift("error");
     winston.log.apply(winston, args);
+    console.error.apply(console, arguments);
   }
   else console.error.apply(console, arguments);
 }
