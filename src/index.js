@@ -1,3 +1,4 @@
+const pjson = require('../package.json');
 const express = require('express');
 const ws = require('ws');
 const url = require('url');
@@ -25,6 +26,7 @@ if(logglyToken) {
   console.error = winston.log;
   console.log('info', "doko-server connected to loggly!");
 }
+console.log("version = " + pjson.version);
 const app = express();
 const bodyParser = require('body-parser');
 const cors = require('cors');
@@ -76,7 +78,7 @@ wsServer.on('connection', (ws, request) => {
     return;
   }
   console.log("found playerConnection["+playerConnection.id+"], playerId " + playerConnection.playerId + ", gameId " + playerConnection.gameId);
-  ws.send(JSON.stringify({command:"id",params:[playerConnection.id]}));
+  ws.send(JSON.stringify({command:"id",params:[playerConnection.id,pjson.version]}));
   if(playerConnection.error) {
     console.log("playerConnection is in error state, sending error to client before socket termination.");
     ws.send(JSON.stringify({error:playerConnection.error}));
@@ -1238,7 +1240,7 @@ chat - array of chat posts (senderId, time, text)
 **/
 
 app.get('/', (req, res) => {
-  res.send('Hello World2!')
+  res.send('gr4per/doko-server v' + pjson.version)
 })
 
 /**

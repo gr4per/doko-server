@@ -1,3 +1,4 @@
+#!/bin/sh
 echo $1
 if [ -z "$1" ]
 then echo "usage: push <commit msg>"
@@ -5,6 +6,6 @@ then echo "usage: push <commit msg>"
 else
   npm version patch
   git add .
-  git commit -m "Commit message"
+  git commit -m "$1"
   git push
 fi
