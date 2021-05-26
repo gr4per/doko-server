@@ -1332,28 +1332,28 @@ async function initGames() {
   let coveredGameIds = [];
   for(let i = gameFileNames.length-1; i> -1; i--) {
     let gfn = gameFileNames[i];
-    logInfo("gfn = " + gfn);
+    //logInfo("gfn = " + gfn);
     let gameId = gfn.substring(0,gfn.length-5);
-    logInfo("gameId = " + gameId);
+    //logInfo("gameId = " + gameId);
     let suffix = "";
     let instance = 0;
     if(gameId.indexOf("_") > -1) {
       suffix = gameId.substring(gameId.indexOf("_")+1, gameId.length);
       gameId = gameId.substring(0, gameId.indexOf("_"));
-      logInfo("gameId = " + gameId);
-      logInfo("suffix = " + suffix);
+      //logInfo("gameId = " + gameId);
+      //logInfo("suffix = " + suffix);
       if(suffix.indexOf("_")>-1) {
         let instanceStr = suffix.substring(0,suffix.indexOf("_"));
-        logInfo("instanceStr=" + instanceStr);
+        //logInfo("instanceStr=" + instanceStr);
         instance = parseInt(instanceStr);
         suffix = suffix.substring(instanceStr.length+1,suffix.length);
-        logInfo("suffix = " + suffix);
+        //logInfo("suffix = " + suffix);
       }
-      logInfo("suffix = " + suffix);
-      logInfo("instance = " + instance);
+      //logInfo("suffix = " + suffix);
+      //logInfo("instance = " + instance);
     }
     if(coveredGameIds.indexOf(gameId) > -1) {
-      logInfo("game " + gameId + " already loaded, skipping " + gfn);
+      //logInfo("game " + gameId + " already loaded, skipping " + gfn);
       continue;
     }
     await loadGame(gfn);
