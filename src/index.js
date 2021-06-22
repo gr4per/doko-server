@@ -1169,6 +1169,7 @@ async function startRound(gameId) {
   // check vorführung
   let soloPlayerIdx = -1;
   if(game.rounds.length - game.currentRound <= 4) {
+    logInfo("Weniger als 5 Runden verbleiben: " + (game.rounds.length-game.currentRound));
     let noSoloYet = [];
     for(let pidx = 0; pidx < 4;pidx++) {
       if(!pflichtsoloGespielt(game, pidx)) {
@@ -1320,6 +1321,7 @@ async function listFiles(path) {
         fileNames.push(de.name);
       }
     }
+    fileNames = fileNames.filter(e => {return e.indexOf("_")>-1 && e.endsWith("Z.json")});
   }
   return fileNames;
 }

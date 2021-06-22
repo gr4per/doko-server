@@ -66,8 +66,12 @@ function isCardLegal(game, playerId, cardId) {
 }
 
 function pflichtsoloGespielt(game, vpidx) {
+  const allSolos = ["obersolo","untersolo","koenigsolo","farbsolo_eichel","farbsolo_schellen","farbsolo_gruen","farbsolo_herz","fleischloser"];
   for(let ridx = 0; ridx < game.currentRound; ridx++) {
-    if(["obersolo","untersolo","koenigsolo","farbsolo_eichel","farbsolo_schellen","farbsolo_gruen","farbsolo_herz","fleischloser"].indexOf(game.rounds[ridx].announcements[vpidx][0]) > -1) {
+    if(allSolos.indexOf(game.rounds[ridx].announcements[vpidx][0]) > -1 // hat ein solo angesagt
+       && game.rounds[ridx].rePlayers.length == 1 // und genau ein Spieler war Re
+       && game.rounds[ridx].rePlayers[0] == vpidx // und der Spieler war der einzige rePlayer
+    ) {
       return true;
     }
   }
